@@ -4,11 +4,26 @@ Study scope: all SEC financial SIC filers (6000–6799), filing dates 2020–202
 This is broader than S&P 500 Financials and includes insurance and real estate.
 
 **Current implementation is a pilot scanner, not a completed industry dataset.**
-It scans local HTML or the 10-K rows of an input inventory. The existing inventory
+It scans CIKs directly, local HTML, or the 10-K rows of an input inventory. The existing inventory
 script defaults to six banks and recent SEC metadata; it does not discover the
 whole industry or guarantee coverage back to 2020. Industry-wide discovery and
 historical metadata collection are the next collection step. Do not interpret
 pilot output as an industry rate.
+
+Direct `--ciks` mode now follows overlapping SEC historical submissions files,
+so it is not restricted to `filings.recent`. All-industry CIK discovery is still
+outstanding. An input inventory retains whatever historical coverage it contains.
+
+## VS Code: no arguments required
+
+Run `scan_item1c.py` with the Run Python File in Terminal button. It prompts for
+CIKs (default SoFi) and a real contact email unless `SEC_USER_AGENT` is already
+set. Default scope is 2020–2026 filing dates, capped at five latest eligible
+filings. This guided run does not enable paid OpenAI calls.
+
+The default output is now `data/item1c.jsonl` relative to the script directory,
+not the terminal's working directory. Explicit relative `--output` paths remain
+relative to the terminal's working directory.
 
 ## What the scanner does
 
@@ -50,6 +65,12 @@ python3 edgar_inventory.py --ciks 1818874 --forms 10-K --since 2020-01-01
 python3 scan_item1c.py --inventory data/filings.csv --limit 5
 ```
 
+Or skip the CSV step and retrieve historical metadata directly:
+
+```bash
+python3 scan_item1c.py --ciks 1818874 --email YOUR_EMAIL --limit 1
+```
+
 Output: `data/item1c.jsonl`, one JSON object per attempted filing. Failed fetches,
 missing sections, extracted sections with zero matches, and extracted sections
 with matches remain distinguishable. Runs append; use a different `--output`
@@ -62,7 +83,7 @@ Put `OPENAI_API_KEY` in secure environment settings, not source code or chat.
 Select an available model supporting Chat Completions JSON object output:
 
 ```bash
-python3 scan_item1c.py --inventory data/filings.csv --limit 1 \
+python3 scan_item1c.py --ciks 1818874 --limit 1 \
   --llm --model YOUR_MODEL_NAME --output data/item1c-llm-pilot.jsonl
 ```
 

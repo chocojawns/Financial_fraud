@@ -10,9 +10,12 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import time
 from urllib.parse import quote
 from urllib.request import Request, urlopen
+
+from edgar_inventory import company_history, filing_rows
 
 
 TERMS = {
@@ -165,18 +168,35 @@ def classify(passage, model, api_key):
             'usage': result.get('usage', {}), 'needs_human_review': True}
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     source = ap.add_mutually_exclusive_group(required=True)
     source.add_argument('--html', type=Path, help='Local filing HTML; no network needed')
     source.add_argument('--inventory', type=Path, help='CSV from edgar_inventory.py')
-    ap.add_argument('--output', type=Path, default=Path('data/item1c.jsonl'))
+    source.add_argument('--ciks', nargs='+', help='Retrieve 10-Ks directly by company CIK')
+    ap.add_argument('--email', help='Contact email for the SEC User-Agent; not an API key')
+    ap.add_argument('--output', type=Path,
+                    default=Path(__file__).resolve().parent / 'data/item1c.jsonl')
     ap.add_argument('--since', default='2020-01-01')
     ap.add_argument('--until', default='2026-12-31')
     ap.add_argument('--limit', type=int, default=5, help='Pilot cap; 0 scans all input rows')
     ap.add_argument('--llm', action='store_true', help='Enable paid OpenAI analysis')
     ap.add_argument('--model', default=os.environ.get('OPENAI_MODEL'))
-    args = ap.parse_args()
+    command = list(sys.argv[1:] if argv is None else argv)
+    if not command:
+        print('Item 1C research scanner — direct SEC pilot (no OpenAI calls).')
+        print('Press Enter for SoFi and the 2020–2026 filing-date range.')
+        try:
+            cik_input = input('Company CIKs, separated by spaces [1818874 = SoFi]: ').strip()
+            ciks = cik_input.replace(',', ' ').split() or ['1818874']
+            command = ['--ciks', *ciks]
+            if not os.environ.get('SEC_USER_AGENT'):
+                email = input('Your contact email for SEC requests: ').strip()
+                command.extend(['--email', email])
+        except (EOFError, KeyboardInterrupt):
+            ap.error('For a noninteractive run use --ciks 1818874 --email YOUR_EMAIL, '
+                     'or --html PATH, or --inventory PATH.')
+    args = ap.parse_args(command)
     if args.limit < 0:
         ap.error('--limit must be nonnegative')
     for date in (args.since, args.until):
@@ -189,25 +209,52 @@ def main():
     key = os.environ.get('OPENAI_API_KEY')
     if args.llm and (not key or not args.model):
         ap.error('--llm requires OPENAI_API_KEY and --model or OPENAI_MODEL')
-    user_agent = os.environ.get('SEC_USER_AGENT')
-    if args.inventory and not user_agent:
-        ap.error('Set SEC_USER_AGENT to a project name and contact email')
+    user_agent = (f'FraudResearch {args.email}' if args.email
+                  else os.environ.get('SEC_USER_AGENT'))
+    if (args.inventory or args.ciks) and not user_agent:
+        ap.error('Supply --email YOUR_EMAIL or set SEC_USER_AGENT for SEC requests')
+    if args.email is not None and ('@' not in args.email or ' ' in args.email):
+        ap.error('--email must be your contact email address')
+    if args.ciks and any(not cik.isdigit() or len(cik) > 10 for cik in args.ciks):
+        ap.error('--ciks must contain numeric CIKs with at most 10 digits')
+    collection_errors = []
     if args.html:
         records = [{'local_html': str(args.html), 'form': '10-K'}]
-    else:
+    elif args.inventory:
         with args.inventory.open(newline='', encoding='utf-8') as source_file:
             records = [row for row in csv.DictReader(source_file)
                        if row['form'] == '10-K'
                        and args.since <= row['filing_date'] <= args.until
                        and 6000 <= int(row['sic']) <= 6799]
+    else:
+        records = []
+        print('Retrieving metadata, including overlapping historical submissions files.')
+        for cik in dict.fromkeys(args.ciks):
+            try:
+                company = company_history(cik, user_agent, args.since, args.until)
+                matches = [row for row in filing_rows(company, {'10-K'}, args.since)
+                           if row['filing_date'] <= args.until]
+                records.extend(matches)
+                print(f'{company.get("name", cik)}: {len(matches)} eligible 10-K filings')
+            except Exception as error:
+                collection_errors.append({'cik': cik, 'status': 'metadata_error',
+                                          'error': f'{type(error).__name__}: {error}'})
+                print(f'CIK {cik}: metadata request failed: {error}', file=sys.stderr)
+            finally:
+                time.sleep(0.25)
+        records = list({(row['cik'], row['accession']): row for row in records}.values())
+        records.sort(key=lambda row: (row['filing_date'], row['cik']), reverse=True)
     if args.limit:
         records = records[:args.limit]
-    if not records:
-        ap.error('No eligible 10-K filings in input; nothing was scanned')
+    if not records and not collection_errors:
+        ap.error('No eligible 10-K filings. Check the dates and financial SIC range '
+                 '(6000–6799). Nothing was scanned.')
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    failed = 0
+    failed = len(collection_errors)
     # Append evidence, never silently overwrite an earlier research run.
     with args.output.open('a', encoding='utf-8') as output:
+        for error in collection_errors:
+            output.write(json.dumps(error) + '\n')
         for record in records:
             result = {'filing': record, 'scan_version': 'item1c-v1'}
             try:

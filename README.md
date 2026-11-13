@@ -3,6 +3,27 @@
 New: [Item 1C fraud/cyber disclosure scanner](RESEARCH.md) extracts candidate
 passages and enclosing Inline XBRL tags, with optional OpenAI classification.
 
+## Start here: VS Code Run button
+
+Open `scan_item1c.py` and click **Run Python File in Terminal**. No command-line
+arguments are needed: the script asks for company CIKs (Enter selects SoFi) and
+your SEC contact email. It retrieves metadata and scans up to five recent 10-Ks
+within 2020–2026. No OpenAI calls occur in this guided mode.
+
+Results appear in `data/item1c.jsonl` **beside the script**, regardless of which
+folder your VS Code terminal starts in. OpenAI analysis remains optional.
+Item 1C generally will not be present for the earlier years in this window.
+
+Or use PowerShell (replace the email with your own):
+
+```powershell
+python .\scan_item1c.py --ciks 1818874 --email YOUR_EMAIL --limit 1
+```
+
+If your terminal is in the parent folder, use `python .\Financial_fraud\scan_item1c.py`
+instead. Use `--limit 0` to process all qualifying 10-Ks for the supplied CIKs.
+This does not discover the entire financial industry.
+
 A small, standard-library Python starter to see which filings are available.
 It reads SEC company submissions JSON and populates a CSV. It does **not**
 download filing documents, search their text, or call an LLM.
@@ -70,8 +91,7 @@ The scripts use only Python's standard library. In the PowerShell terminal:
 
 ```powershell
 $env:SEC_USER_AGENT = 'FraudResearch your-email@example.com'
-python edgar_inventory.py --ciks 1818874 --forms 10-K --since 2020-01-01
-python scan_item1c.py --inventory data/filings.csv --limit 1
+python scan_item1c.py --ciks 1818874 --limit 1
 python -m unittest discover -s tests -v
 ```
 

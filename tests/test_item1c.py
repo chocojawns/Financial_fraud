@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scan_item1c import analyze_html, classify
+from scan_item1c import analyze_html, classify, main
 
 
 BODY = ('We assess cybersecurity risks and maintain an information security '
@@ -73,6 +73,46 @@ class Item1CTests(unittest.TestCase):
             result = json.loads(output.read_text())
             self.assertIn('phishing', result['passages'][0]['keywords'])
             self.assertEqual(len(result['document_sha256']), 64)
+
+    def test_vscode_run_without_arguments_prompts_and_scans(self):
+        company = {'name': 'Example Financial', 'cik': '1818874', 'sic': '6199',
+                   'filings': {'recent': {
+                       'form': ['10-K'], 'filingDate': ['2026-02-01'],
+                       'accessionNumber': ['0001818874-26-000001'],
+                       'primaryDocument': ['annual.htm']}}}
+        html = (f'<h2>Item 1C. Cybersecurity</h2><p>{BODY}Fraud is a risk.</p>'
+                '<h2>Item 2. Properties</h2>').encode()
+        class Response:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def read(self):
+                return html
+        with tempfile.TemporaryDirectory() as folder, \
+             patch('scan_item1c.__file__', str(Path(folder) / 'scan_item1c.py')), \
+             patch.dict('os.environ', {'SEC_USER_AGENT': ''}), \
+             patch('builtins.input', side_effect=['', 'research@example.org']), \
+             patch('builtins.print'), \
+             patch('scan_item1c.company_history', return_value=company) as history, \
+             patch('scan_item1c.urlopen', return_value=Response()), \
+             patch('scan_item1c.time.sleep'):
+            self.assertEqual(main([]), 0)
+            history.assert_called_once_with('1818874', 'FraudResearch research@example.org',
+                                            '2020-01-01', '2026-12-31')
+            output = Path(folder) / 'data' / 'item1c.jsonl'
+            record = json.loads(output.read_text())
+            self.assertIn('fraud', record['passages'][0]['keywords'])
+
+    def test_metadata_failure_returns_failure_with_evidence(self):
+        with tempfile.TemporaryDirectory() as folder, \
+             patch('scan_item1c.company_history', side_effect=TimeoutError('timed out')), \
+             patch('scan_item1c.time.sleep'), patch('builtins.print'):
+            output = Path(folder) / 'errors.jsonl'
+            result = main(['--ciks', '1818874', '--email', 'research@example.org',
+                           '--output', str(output)])
+            self.assertEqual(result, 1)
+            self.assertEqual(json.loads(output.read_text())['status'], 'metadata_error')
 
 
 if __name__ == '__main__':

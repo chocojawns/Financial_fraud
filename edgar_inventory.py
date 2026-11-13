@@ -17,12 +17,40 @@ FIELDS = ['company', 'cik', 'sic', 'sic_description', 'form', 'filing_date',
           'report_date', 'accession', 'primary_document', 'edgar_url']
 
 
-def fetch_company(cik, user_agent):
-    url = f'https://data.sec.gov/submissions/CIK{int(cik):010d}.json'
+def fetch_submissions_json(filename, user_agent):
+    if '/' in filename or '\\' in filename or not filename.endswith('.json'):
+        raise ValueError('Invalid SEC submissions filename')
+    url = f'https://data.sec.gov/submissions/{filename}'
     request = Request(url, headers={'User-Agent': user_agent,
                                    'Accept': 'application/json'})
     with urlopen(request, timeout=30) as response:
         return json.load(response)
+
+
+def fetch_company(cik, user_agent):
+    return fetch_submissions_json(f'CIK{int(cik):010d}.json', user_agent)
+
+
+def company_history(cik, user_agent, since, until):
+    """Include older submissions files whose date ranges overlap the request."""
+    company = fetch_company(cik, user_agent)
+    merged = dict(company.get('filings', {}).get('recent', {}))
+    for archive in company.get('filings', {}).get('files', []):
+        if archive.get('filingTo', '9999-12-31') < since:
+            continue
+        if archive.get('filingFrom', '0000-01-01') > until:
+            continue
+        time.sleep(0.25)
+        older = fetch_submissions_json(archive['name'], user_agent)
+        # SEC historical files contain the filing arrays directly.
+        keys = set(merged) | set(older)
+        previous_count = len(merged.get('form', []))
+        older_count = len(older.get('form', []))
+        merged = {key: merged.get(key, [''] * previous_count)
+                  + older.get(key, [''] * older_count) for key in keys}
+    company = dict(company)
+    company['filings'] = {'recent': merged}
+    return company
 
 
 def filing_rows(company, forms, since, sic_min=6000, sic_max=6799):
