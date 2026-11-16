@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from fraud_financials import VERSION, enrich, financial_candidates, export_financial_reports, load_ciks
-from scan_item1c import analyze_html, classify, main
+from discovery import analyze_html, classify, main
 
 
 class FinancialTests(unittest.TestCase):
@@ -98,9 +98,9 @@ class FinancialTests(unittest.TestCase):
                 'accessionNumber': [f'{cik}-a', f'{cik}-b', f'{cik}-c'],
                 'primaryDocument': ['annual.htm'] * 3}}}
         with tempfile.TemporaryDirectory() as folder, \
-             patch('scan_item1c.company_history', side_effect=company), \
-             patch('scan_item1c.read_sec', return_value=b'<p>Fraud losses were USD 2 million.</p>') as fetch, \
-             patch('scan_item1c.time.sleep'), patch('builtins.print'):
+             patch('discovery.company_history', side_effect=company), \
+             patch('discovery.read_sec', return_value=b'<p>Fraud losses were USD 2 million.</p>') as fetch, \
+             patch('discovery.time.sleep'), patch('builtins.print'):
             output = Path(folder) / 'pilot.jsonl'
             self.assertEqual(main(['--ciks', '19617', '70858', '--pilot', '--primary-only',
                                    '--output', str(output)]), 0)
@@ -120,7 +120,7 @@ class FinancialTests(unittest.TestCase):
         def response():
             return json.dumps({'choices': [{'finish_reason': 'stop', 'message': {
                 'content': json.dumps(value)}}]}).encode()
-        with patch('scan_item1c.urlopen') as fetch:
+        with patch('discovery.urlopen') as fetch:
             fetch.return_value.__enter__.return_value.read.side_effect = response
             reviewed = classify(text, 'test-model', 'test-key')
             passage = self.passage(text)

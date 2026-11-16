@@ -9,7 +9,7 @@ Python 3.10+; no third-party packages required.
 
 ## Start in VS Code — Windows
 
-1. Open `scan_item1c.py`.
+1. Open `discovery.py`.
 2. Click **Run Python File in Terminal**.
 3. Enter the company's numeric CIK, e.g. `1818874` for SoFi.
 
@@ -19,13 +19,13 @@ No OpenAI key is required and no paid calls occur by default.
 Or run from the repository folder in PowerShell:
 
 ```powershell
-python .\scan_item1c.py
+python .\discovery.py
 ```
 
 If your terminal is in the parent folder:
 
 ```powershell
-python .\Financial_fraud\scan_item1c.py
+python .\Financial_fraud\discovery.py
 ```
 
 ## Debian
@@ -33,7 +33,7 @@ python .\Financial_fraud\scan_item1c.py
 Open the same repository folder and run:
 
 ```bash
-python3 scan_item1c.py
+python3 discovery.py
 ```
 
 Both operating systems use the same code and outputs. The user's current machine
@@ -45,7 +45,7 @@ From the repository folder on Windows:
 
 ```powershell
 # Two latest pending annual reports per company: JPMorgan Chase and Bank of America
-python scan_item1c.py --cik-file examples/pilot_ciks.txt --forms 10-K --pilot
+python discovery.py --cik-file examples/pilot_ciks.txt --forms 10-K --pilot
 ```
 
 Review `data/fraud_financials_amounts.csv` and `data/fraud_financials_coverage.csv`.
@@ -56,7 +56,7 @@ To scale, create `financials_ciks.txt` with one numeric CIK per line, using a
 dated S&P 500 Financials membership list. Then run:
 
 ```powershell
-python scan_item1c.py --cik-file financials_ciks.txt --forms 10-K 10-K/A 10-Q 10-Q/A 8-K 8-K/A
+python discovery.py --cik-file financials_ciks.txt --forms 10-K 10-K/A 10-Q 10-Q/A 8-K 8-K/A
 ```
 
 A CSV with a `cik` column also works. The program does not invent a constituent
@@ -105,25 +105,25 @@ Passage windows can overlap; they are **not distinct incident counts**.
 
 ```powershell
 # A quick first test
-python scan_item1c.py --ciks 1818874 --limit 1
+python discovery.py --ciks 1818874 --limit 1
 
 # Faster pass without exhibits
-python scan_item1c.py --ciks 1818874 --primary-only
+python discovery.py --ciks 1818874 --primary-only
 
 # Only annual, quarterly, and current reports, including amendments
-python scan_item1c.py --ciks 1818874 --forms 10-K 10-K/A 10-Q 10-Q/A 8-K 8-K/A
+python discovery.py --ciks 1818874 --forms 10-K 10-K/A 10-Q 10-Q/A 8-K 8-K/A
 
 # Multiple companies
-python scan_item1c.py --ciks 19617 70858 72971
+python discovery.py --ciks 19617 70858 72971
 
 # Item 1C only
-python scan_item1c.py --ciks 1818874 --forms 10-K --section item1c
+python discovery.py --ciks 1818874 --forms 10-K --section item1c
 
 # Local HTML: no SEC connection required
-python scan_item1c.py --html company-10k.htm
+python discovery.py --html company-10k.htm
 
 # Optional paid analysis: set OPENAI_API_KEY securely first
-python scan_item1c.py --ciks 1818874 --limit 1 --llm --model YOUR_MODEL
+python discovery.py --ciks 1818874 --limit 1 --llm --model YOUR_MODEL
 
 # Tests
 python -m unittest discover -s tests -v

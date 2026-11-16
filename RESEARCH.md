@@ -12,7 +12,7 @@
 
 ## Current implementation
 
-`scan_item1c.py` retains its original filename for compatibility but defaults to
+`discovery.py` defaults to
 searching entire primary documents and additional HTML/text exhibits across
 all available form types. Explicit
 `--section item1c` restores the narrower section extraction. Historical metadata
