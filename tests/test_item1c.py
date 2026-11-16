@@ -68,7 +68,7 @@ class Item1CTests(unittest.TestCase):
                               'We train employees against phishing.</p>'
                               '<h2>Item 2. Properties</h2>')
             run = subprocess.run([sys.executable, 'scan_item1c.py', '--html',
-                                  str(source), '--output', str(output)],
+                                  str(source), '--focus', 'discovery', '--output', str(output)],
                                  capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stderr)
             result = json.loads(output.read_text())
@@ -102,7 +102,7 @@ class Item1CTests(unittest.TestCase):
             self.assertEqual(main([]), 0)
             history.assert_called_once_with('1818874', 'FraudResearch andy@andyj.tech',
                                             '2020-01-01', '2026-12-31')
-            output = Path(folder) / 'data' / 'fraud_scan.jsonl'
+            output = Path(folder) / 'data' / 'fraud_financials.jsonl'
             record = json.loads(output.read_text())
             self.assertIn('fraud', record['passages'][0]['keywords'])
 

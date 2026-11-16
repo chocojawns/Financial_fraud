@@ -2,7 +2,8 @@
 
 ## Agreed project scope
 
-- Goal: investigate disclosed fraud impacts on S&P 500 Financials.
+- Goal: identify separately disclosed fraud-related financial amounts, their
+  meaning, and accounting location among S&P 500 Financials.
 - Filing-date window: 2020–2026, with 2026 incomplete until year-end.
 - Early collection covered all financial SIC filers; the current request starts
   with any user-supplied CIK. SIC membership is not S&P 500/GICS membership.
@@ -86,3 +87,46 @@ Tests cover full-document matches outside Item 1C, other form types, resumption,
 historical metadata, no-argument CIK input, tags, missing sections, local CLI,
 metadata errors, and rejection of invented LLM quotations. Network calls are
 mocked in these tests; passing them does not establish live SEC/OpenAI access.
+
+
+## Financial-amount discovery and pilot
+
+The default focus is now financial. Explicit fraud indicators seed passages;
+AI/cyber words alone no longer trigger them. Use `--focus discovery` for the
+older broad vocabulary. Monetary candidates must share a sentence with an
+explicit fraud indicator. This is only a candidate relationship, not verified
+attribution. Ordinary credit losses without fraud context are excluded.
+
+Amounts are kept separate by category suggestion: loss, provision/liability,
+customer reimbursement, recovery, insurance recovery, fine/settlement, and
+prevention/remediation cost. Mixed statements remain ambiguous. Potential
+statements are flagged. There is no automatic total. Numeric magnitudes do not
+resolve accounting signs, ranges, currency ambiguity, or shared table units.
+A `$` marker alone is not assumed to mean USD. Quoted period and accounting
+location are not inferred from filing metadata.
+
+The amounts CSV distinguishes tags overlapping the monetary expression from
+broader passage tags. A text-block tag still does not establish the accounting
+line or taxonomy definition. Tests identified and corrected a text-offset
+collision with Python HTMLParser's internal position tracking.
+
+Candidate evidence is deduplicated within a filing using document URL and text
+offset. Overlapping windows do not create duplicate rows for the same expression.
+Repeated events across filings, multiple documents, and companies still require
+review. Amount/coverage CSVs use the latest attempt per filing/scope/focus for the
+current scan version; JSONL and the broad passage CSV retain attempt history.
+Incomplete scans can preserve partial evidence, explicitly flagged by scan status.
+Company-year prevalence requires a complete, reviewed denominator; these tables
+do not calculate one automatically.
+
+`--pilot` scans two pending filings per supplied CIK, not two filings total.
+Combine with `--forms 10-K` for an annual-report pilot. `--cik-file` reads one CIK
+per line or a CSV with a cik column. The included example lists JPMorgan Chase
+and Bank of America only. It does not establish a full or historical S&P 500
+universe. Expand using a dated constituent list and omit `--pilot` to scan all.
+
+Optional OpenAI output now includes financial findings with exact amount text,
+category, supporting quotation, accounting label, and period where stated.
+Unsupported quotes, labels, periods, and non-monetary amount strings are rejected.
+LLM results remain suggestions requiring human review. No live model calls were
+used in the offline validation.

@@ -16,6 +16,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from edgar_inventory import DEFAULT_USER_AGENT, company_history, filing_rows
+from fraud_financials import VERSION, FRAUD, MONEY, enrich, export_financial_reports, load_ciks
 
 
 TERMS = {
@@ -46,12 +47,12 @@ class FilingParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts, self.facts, self.active = [], [], []
-        self.offset = 0
+        self.text_offset = 0
         self.skipping = 0
 
     def append(self, text):
         self.parts.append(text)
-        self.offset += len(text)
+        self.text_offset += len(text)
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -63,11 +64,12 @@ class FilingParser(HTMLParser):
             self.append('\n')
         if tag in {'ix:nonnumeric', 'ix:nonfraction'}:
             self.active.append((tag, {
+                'element': tag,
                 'name': attrs.get('name', ''),
                 'context_ref': attrs.get('contextref', ''),
                 'unit_ref': attrs.get('unitref', ''),
                 'continued_at': attrs.get('continuedat', ''),
-                'start': self.offset,
+                'start': self.text_offset,
             }))
 
     def handle_endtag(self, tag):
@@ -78,7 +80,7 @@ class FilingParser(HTMLParser):
             return
         if self.active and self.active[-1][0] == tag:
             _, fact = self.active.pop()
-            fact['end'] = self.offset
+            fact['end'] = self.text_offset
             self.facts.append(fact)
         if tag in {'p', 'div', 'tr', 'li', 'h1', 'h2', 'h3'}:
             self.append('\n')
@@ -88,7 +90,7 @@ class FilingParser(HTMLParser):
             self.append(data.replace('\xa0', ' '))
 
 
-def analyze_html(html, whole_filing=False):
+def analyze_html(html, whole_filing=False, focus='discovery'):
     parser = FilingParser()
     parser.feed(html)
     text = ''.join(parser.parts)
@@ -108,7 +110,8 @@ def analyze_html(html, whole_filing=False):
                   max(candidates, key=lambda pair: pair[1] - pair[0]))
     section = text[start:end]
     windows = []
-    for pattern in PATTERNS.values():
+    patterns = [FRAUD] if focus == 'financial' else PATTERNS.values()
+    for pattern in patterns:
         for match in pattern.finditer(section):
             windows.append((max(0, match.start() - 600),
                             min(len(section), match.end() + 600)))
@@ -150,7 +153,19 @@ def classify(passage, model, api_key):
              'mixed, unclear), summary (string), evidence_quotes (nonempty array of '
              'exact substrings), and ai_connection (explicit, absent, or unclear). '
              'Do not infer that a cyber incident is fraud or that no material '
-             'impact means no incident occurred. Do not invent facts.'},
+             'impact means no incident occurred. Also return financial_findings '
+             '(an array, empty if none). Each finding must contain category '
+             '(loss, provision_or_liability, customer_reimbursement, recovery, '
+             'insurance_recovery, fine_or_settlement, prevention_or_remediation_cost, '
+             'fraud_prevention_revenue, ambiguous_or_other), amount_text (exact '
+             'monetary expression), evidence_quote (exact supporting quote '
+             'explicitly linking fraud to the amount), accounting_location '
+             '(exact stated account/line label or empty string), and period_text '
+             '(exact stated period or empty string). Exclude ordinary defaults '
+             'and bad debts unless explicitly attributed to fraud. Do not '
+             'treat risk scenarios, alleged amounts, customer funds stolen, '
+             'or money handled by the company as realized company losses. '
+             'Use ambiguous_or_other if uncertain. Do not invent or sum facts.'},
             {'role': 'user', 'content': passage},
         ],
     }
@@ -174,7 +189,26 @@ def classify(passage, model, api_key):
             or any(not isinstance(q, str) or not q.strip() or q not in passage
                    for q in quotes)):
         raise ValueError('LLM schema or supporting quotation validation failed')
-    return {'model': model, 'prompt_version': 'item1c-v1', 'result': value,
+    findings = value.get('financial_findings')
+    categories = {'loss', 'provision_or_liability', 'customer_reimbursement', 'recovery',
+                  'insurance_recovery', 'fine_or_settlement', 'prevention_or_remediation_cost',
+                  'fraud_prevention_revenue', 'ambiguous_or_other'}
+    if not isinstance(findings, list):
+        raise ValueError('LLM must return a financial_findings array')
+    for finding in findings:
+        quote_text = finding.get('evidence_quote', '')
+        amount_text = finding.get('amount_text', '')
+        if (finding.get('category') not in categories
+                or not isinstance(quote_text, str) or not quote_text.strip()
+                or quote_text not in passage or not FRAUD.search(quote_text)
+                or not isinstance(amount_text, str) or not amount_text.strip()
+                or amount_text not in quote_text or not MONEY.fullmatch(amount_text.strip())):
+            raise ValueError('Unsupported LLM financial finding or quotation')
+        for field in ('accounting_location', 'period_text'):
+            label = finding.get(field)
+            if not isinstance(label, str) or (label and label not in passage):
+                raise ValueError('LLM accounting location or period lacks source support')
+    return {'model': model, 'prompt_version': VERSION, 'result': value,
             'usage': result.get('usage', {}), 'needs_human_review': True}
 
 
@@ -241,9 +275,14 @@ def main(argv=None):
     source = ap.add_mutually_exclusive_group(required=True)
     source.add_argument('--html', type=Path, help='Local filing HTML; no network needed')
     source.add_argument('--inventory', type=Path, help='CSV from edgar_inventory.py')
-    source.add_argument('--ciks', nargs='+', help='Retrieve 10-Ks directly by company CIK')
+    source.add_argument('--ciks', nargs='+', help='Retrieve filings directly by company CIK')
+    source.add_argument('--cik-file', type=Path, help='Batch: one CIK per line or CSV with cik column')
+    ap.add_argument('--pilot', action='store_true', help='Scan at most two pending filings per CIK')
+    ap.add_argument('--limit-per-cik', type=int, default=0, help='Per-company cap; 0 means all')
+    ap.add_argument('--focus', choices=['financial', 'discovery'], default='financial',
+                    help='Default: explicit fraud terms and monetary candidate extraction')
     ap.add_argument('--email', help='Contact email for the SEC User-Agent; not an API key')
-    ap.add_argument('--output', type=Path, help='Output JSONL; default data/fraud_scan.jsonl beside script')
+    ap.add_argument('--output', type=Path, help='Output JSONL; default data/fraud_financials.jsonl beside script')
     ap.add_argument('--section', choices=['all', 'item1c'], default='all',
                     help='Search entire primary documents (default) or Item 1C only')
     ap.add_argument('--forms', nargs='+', default=['*'],
@@ -258,7 +297,7 @@ def main(argv=None):
     ap.add_argument('--model', default=os.environ.get('OPENAI_MODEL'))
     command = list(sys.argv[1:] if argv is None else argv)
     if not command:
-        print('EDGAR fraud scanner — all form types, 2020–2026 filing dates.')
+        print('EDGAR fraud financial-disclosure scanner — 2020–2026 filing dates.')
         print('Searches primary documents, not just Item 1C. No OpenAI calls.')
         try:
             cik_input = input('Enter company CIK (or several, separated by spaces): ').strip()
@@ -270,12 +309,19 @@ def main(argv=None):
             ap.error('For a noninteractive run use --ciks 1818874, '
                      'or --html PATH, or --inventory PATH.')
     args = ap.parse_args(command)
+    if args.cik_file:
+        try:
+            args.ciks = load_ciks(args.cik_file)
+        except (OSError, ValueError) as error:
+            ap.error(str(error))
+    if args.pilot:
+        args.limit_per_cik = 2
     if args.output is None:
-        args.output = Path(__file__).resolve().parent / 'data' / 'fraud_scan.jsonl'
+        args.output = Path(__file__).resolve().parent / 'data' / 'fraud_financials.jsonl'
     if args.output.suffix.lower() != '.jsonl':
         ap.error('--output must end in .jsonl; the companion .csv is generated automatically')
-    if args.limit < 0:
-        ap.error('--limit must be nonnegative')
+    if args.limit < 0 or args.limit_per_cik < 0:
+        ap.error('Filing limits must be nonnegative')
     for date in (args.since, args.until):
         try:
             time.strptime(date, '%Y-%m-%d')
@@ -330,12 +376,23 @@ def main(argv=None):
             for line in previous:
                 old = json.loads(line)
                 if (old.get('status') == 'extracted_needs_review'
+                        and old.get('scan_version') == VERSION
+                        and old.get('focus') == args.focus
                         and (not args.llm or all('llm' in p for p in old.get('passages', [])))):
                     if (args.primary_only or old.get('exhibits_complete')):
                         completed.add(scan_key(old.get('filing', {}), old.get('scan_scope')))
         before = len(records)
         records = [row for row in records if scan_key(row, args.section) not in completed]
         print(f'Resuming: skipped {before - len(records)} previously scanned filings.')
+    if args.limit_per_cik:
+        counts = {}
+        selected = []
+        for record in records:
+            cik = record.get('cik', '')
+            if counts.get(cik, 0) < args.limit_per_cik:
+                selected.append(record)
+                counts[cik] = counts.get(cik, 0) + 1
+        records = selected
     if args.limit:
         records = records[:args.limit]
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -343,10 +400,12 @@ def main(argv=None):
     # Append evidence, never silently overwrite an earlier research run.
     with args.output.open('a', encoding='utf-8') as output:
         for error in collection_errors:
+            error.update({'scan_version': VERSION, 'focus': args.focus, 'scan_scope': args.section,
+                          'financial_discovery_status': 'incomplete_scan'})
             output.write(json.dumps(error) + '\n')
         for index, record in enumerate(records, 1):
-            result = {'filing': record, 'scan_version': 'fraud-v2',
-                      'scan_scope': args.section}
+            result = {'filing': record, 'scan_version': VERSION,
+                      'scan_scope': args.section, 'focus': args.focus}
             try:
                 if 'local_html' in record:
                     raw = Path(record['local_html']).read_bytes()
@@ -359,11 +418,12 @@ def main(argv=None):
                     raw = read_sec(url, user_agent)
                 result['document_sha256'] = hashlib.sha256(raw).hexdigest()
                 result.update(analyze_html(raw.decode('utf-8', errors='replace'),
-                                           whole_filing=args.section == 'all'))
+                                           whole_filing=args.section == 'all', focus=args.focus))
                 if result['status'] == 'no_readable_text':
                     failed += 1
                 for passage in result.get('passages', []):
                     passage['document_url'] = result.get('document_url', record.get('local_html', ''))
+                    passage['document_section_offset'] = result.get('section_start', 0)
                 result['documents'] = [{
                     'url': result.get('document_url', record.get('local_html', '')),
                     'kind': 'primary', 'status': result['status'],
@@ -375,11 +435,13 @@ def main(argv=None):
                     for exhibit_url in exhibit_urls(url, record['accession'], user_agent):
                         print('  Scanning additional document:', exhibit_url.rsplit('/', 1)[-1])
                         extra_raw = read_sec(exhibit_url, user_agent)
-                        extra = analyze_html(extra_raw.decode('utf-8', errors='replace'), whole_filing=True)
+                        extra = analyze_html(extra_raw.decode('utf-8', errors='replace'),
+                                             whole_filing=True, focus=args.focus)
                         if extra['status'] == 'no_readable_text':
                             raise ValueError(f'No readable text in {exhibit_url}')
                         for passage in extra['passages']:
                             passage['document_url'] = exhibit_url
+                            passage['document_section_offset'] = extra.get('section_start', 0)
                         result['passages'].extend(extra['passages'])
                         result['documents'].append({
                             'url': exhibit_url, 'kind': 'additional_document',
@@ -397,6 +459,7 @@ def main(argv=None):
                 result['error'] = f'{type(error).__name__}: {error}'
                 result['status'] = 'error'
                 failed += 1
+            enrich(result)
             output.write(json.dumps(result, ensure_ascii=False) + '\n')
             output.flush()
             print(f'[{index}/{len(records)}]', record.get('company', record.get('local_html')),
@@ -404,6 +467,8 @@ def main(argv=None):
                   result['status'], f'{len(result.get("passages", []))} candidate passages')
     print(f'{len(records)} filings attempted; {failed} errors. Output: {args.output}')
     print(f'Spreadsheet: {export_csv(args.output)}')
+    for report_path in export_financial_reports(args.output):
+        print(f'Financial research report: {report_path}')
     print('Keyword matches are candidate disclosures, not confirmed fraud incidents '
           'or a measure of fraud losses. PDFs/images and XBRL-only attachments are not searched.')
     return int(bool(failed))
