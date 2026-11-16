@@ -1,126 +1,88 @@
-# Step 1: Item 1C discovery
+# Research notes
 
-Study scope: all SEC financial SIC filers (6000–6799), filing dates 2020–2026.
-This is broader than S&P 500 Financials and includes insurance and real estate.
+## Agreed project scope
 
-**Current implementation is a pilot scanner, not a completed industry dataset.**
-It scans CIKs directly, local HTML, or the 10-K rows of an input inventory. The existing inventory
-script defaults to six banks and recent SEC metadata; it does not discover the
-whole industry or guarantee coverage back to 2020. Industry-wide discovery and
-historical metadata collection are the next collection step. Do not interpret
-pilot output as an industry rate.
+- Goal: investigate disclosed fraud impacts on S&P 500 Financials.
+- Filing-date window: 2020–2026, with 2026 incomplete until year-end.
+- Early collection covered all financial SIC filers; the current request starts
+  with any user-supplied CIK. SIC membership is not S&P 500/GICS membership.
+- Current user machine: Windows. Debian will also be used; user will announce changes.
+- SEC contact: andy@andyj.tech. Prompt only for CIKs.
 
-Direct `--ciks` mode now follows overlapping SEC historical submissions files,
-so it is not restricted to `filings.recent`. All-industry CIK discovery is still
-outstanding. An input inventory retains whatever historical coverage it contains.
+## Current implementation
 
-## VS Code: no arguments required
+`scan_item1c.py` retains its original filename for compatibility but defaults to
+searching entire primary documents and additional HTML/text exhibits across
+all available form types. Explicit
+`--section item1c` restores the narrower section extraction. Historical metadata
+files overlapping the date range are included in direct CIK mode. Existing CSV
+inventories retain their own coverage limits. `edgar_inventory.py` remains an
+optional metadata-only helper with a recent-metadata default and SIC filtering.
 
-Run `scan_item1c.py` with the Run Python File in Terminal button. It prompts for
-CIKs (default SoFi) and a real contact email unless `SEC_USER_AGENT` is already
-set. Default scope is 2020–2026 filing dates, capped at five latest eligible
-filings. This guided run does not enable paid OpenAI calls.
+Documents are fetched into memory; raw filing files are not saved.
+Research text and evidence are saved in JSONL and CSV. Directory listings are used to discover additional HTML/text documents; the
+combined full submission is skipped to avoid duplication. PDFs/images, XBRL-only
+attachments, related-company filings, and confidential reports are not searched.
+Use `--primary-only` for a faster pass without exhibits. Failed exhibit retrieval
+marks the filing incomplete so it can be retried. Each passage retains its own
+document URL; offsets and tag contexts refer to that source document. The saved
+`section` text is the primary document; exhibit evidence is stored as passages.
 
-The default output is now `data/item1c.jsonl` relative to the script directory,
-not the terminal's working directory. Explicit relative `--output` paths remain
-relative to the terminal's working directory.
+## What a result establishes
 
-## What the scanner does
+A match is a candidate disclosure. It does not establish a fraud incident,
+a perpetrator, a loss, or AI causation. The surrounding text must distinguish
+hypothetical risks, controls, allegations, actual events, and statements about
+materiality. No material impact does not mean no incidents.
 
-1. Finds a candidate 10-K Item 1C section between its cybersecurity heading and
-   Item 1D or Item 2. The longest qualifying candidate is used to avoid TOC entries.
-2. Finds fraud, scams, account takeover, identity theft, synthetic identity,
-   unauthorized transactions, social engineering, phishing, business email
-   compromise, ransomware, deepfakes, and AI terms. These are candidate search
-   terms; a match does not establish fraud.
-3. Saves surrounding text, the full extracted section, source metadata, content
-   hash, and overlapping Inline XBRL tag names/context references.
-4. Optionally sends candidate passages to OpenAI for classification. It validates
-   JSON fields and checks that supporting quotes occur in the supplied passage.
+Candidate search vocabulary also includes AI and cyber terms to discover possible
+connections. These can generate unrelated matches. Review a sample of zero-match
+filings for missed terminology before comparing disclosure prevalence.
 
-Item 1C compliance began with fiscal years ending on or after December 15, 2023.
-Earlier years need a separate Item 1A/MD&A/notes search for longitudinal analysis.
-Missing Item 1C is not evidence of no fraud. An 8-K's Item 1.06 concerns material
-cybersecurity incidents; Item 8.01 is Other Events. There is no current 8-K Item
-1.05. This first scanner does not extract 8-K sections yet.
+Results include negative and failed records. Failure, unavailable text, missing
+Item 1C, and a successful zero-keyword scan must remain distinct. A no-readable-text
+result makes the command return failure. Overlapping passage chunks and repeated
+filing updates do not represent distinct incidents.
 
-## Run on local HTML
+## XBRL limits
 
-No installation or credentials required; Python 3.10+:
+Visible `ix:nonNumeric` and `ix:nonFraction` elements enclosing passages are
+recorded, with names, context references, units where present, and offsets.
+Tag names preserve the source spelling. Untagged passages have an empty tag list.
+A text-block concept is not necessarily a standardized fraud expense.
 
-```bash
-cd Financial_fraud
-python3 scan_item1c.py --html /path/to/company-10k.htm
-```
+Continued fact chains are flagged but not resolved. Full taxonomy definitions,
+numeric transformations, dimensions, and accounting comparability remain future
+work. Do not aggregate a tag's values without checking the underlying disclosure.
 
-## Run a network pilot
+## Item 1C limits
 
-Provide a real contact email in the SEC User-Agent. This fetches filing HTML
-into memory, without retaining raw downloaded filing files. Extracted research
-evidence is saved locally. Requests are sequential and paced.
+Compliance began with fiscal years ending on or after December 15, 2023. Earlier
+years need other sections; the full-document default allows that search.
+Section-specific extraction is heuristic, requires a closing Item 1D/2 heading,
+and must be checked on real filings. Missing Item 1C is not zero fraud.
+8-K Item 1.06 is Material Cybersecurity Incidents; Item 8.01 is Other Events.
+There is no current 8-K Item 1.05.
 
-```bash
-export SEC_USER_AGENT='FraudResearch your-email@example.com'
-python3 edgar_inventory.py --ciks 1818874 --forms 10-K --since 2020-01-01
-python3 scan_item1c.py --inventory data/filings.csv --limit 5
-```
+## OpenAI
 
-Or skip the CSV step and retrieve historical metadata directly:
+Optional paid analysis requires explicit `--llm`, model selection, and an API key
+in the environment. JSON fields and exact evidence quotations are checked, but
+that does not prove an interpretation correct. Model, prompt version, usage, and
+review status accompany each response. No automated dollar aggregation occurs.
 
-```bash
-python3 scan_item1c.py --ciks 1818874 --email YOUR_EMAIL --limit 1
-```
+## Next research steps
 
-Output: `data/item1c.jsonl`, one JSON object per attempted filing. Failed fetches,
-missing sections, extracted sections with zero matches, and extracted sections
-with matches remain distinguishable. Runs append; use a different `--output`
-for each research run to avoid counting duplicate attempts. `--limit 0` processes
-all eligible rows in the supplied inventory; it does not expand the universe.
-
-## Optional OpenAI analysis
-
-Put `OPENAI_API_KEY` in secure environment settings, not source code or chat.
-Select an available model supporting Chat Completions JSON object output:
-
-```bash
-python3 scan_item1c.py --ciks 1818874 --limit 1 \
-  --llm --model YOUR_MODEL_NAME --output data/item1c-llm-pilot.jsonl
-```
-
-No API calls occur without `--llm`. Calls are billable; start with one filing.
-Model, prompt version, usage, classification, and quotes accompany each result.
-A valid quote does not prove the interpretation is correct: review findings.
-No full-industry paid run has been executed or estimated yet.
-
-Required network destinations: `data.sec.gov`, `www.sec.gov`, and, for optional
-analysis, `api.openai.com`. Current environment settings must permit them.
-
-## Interpretation and extraction limits
-
-- HTML extraction is heuristic and must be spot-checked on actual filings before
-  scaling. Unusual headings, amendments, incorporated disclosures, malformed
-  markup, and abbreviated sections can be missed.
-- Matching includes AI and general cyber terms for exploration. These are not
-  automatically fraud disclosures. Fixed character windows can cut context;
-  compare against the complete saved section before concluding.
-- Search terms can miss disclosures phrased differently. Review a sample of
-  zero-match sections before estimating prevalence.
-- Tags are extracted from visible `ix:nonNumeric` and `ix:nonFraction` elements.
-  A surrounding text-block tag is not necessarily a fraud-specific accounting
-  concept. Untagged passages are retained with an empty tag list.
-- Continued Inline XBRL fact chains are flagged by `continued_at` but are not
-  resolved. Taxonomy definitions, numeric transformations, units, and full XBRL
-  context/dimension resolution are a later step. Never treat extracted tag
-  names as verified financial measures.
-- Local HTML input is presumed to be a 10-K; the supplied file's form is not
-  independently verified. This tool does not count distinct real-world events.
+1. Inspect one company's spreadsheet and verify source passages.
+2. Refine fraud vocabulary and categories, including financial-impact labels.
+3. Review exhibit evidence and decide whether PDF/image extraction is needed.
+4. Map CIKs/subsidiaries to a dated S&P 500 Financials constituent list.
+5. Deduplicate events and comparable accounting amounts before sector analysis.
 
 ## Validation
 
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-Offline fixtures test TOC avoidance, section boundaries, tag association, missing
-sections, zero keyword matches, quote validation, and the local CLI. They do not
-establish live SEC or OpenAI readiness.
+Run `python -m unittest discover -s tests -v` on Windows, or `python3` on Debian.
+Tests cover full-document matches outside Item 1C, other form types, resumption,
+historical metadata, no-argument CIK input, tags, missing sections, local CLI,
+metadata errors, and rejection of invented LLM quotations. Network calls are
+mocked in these tests; passing them does not establish live SEC/OpenAI access.

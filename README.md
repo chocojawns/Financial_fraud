@@ -1,101 +1,130 @@
-# EDGAR filing inventory
+# EDGAR fraud research
 
-New: [Item 1C fraud/cyber disclosure scanner](RESEARCH.md) extracts candidate
-passages and enclosing Inline XBRL tags, with optional OpenAI classification.
+Search a company's EDGAR filings for fraud/cyber-related passages, preserve source
+links and enclosing Inline XBRL tags, and optionally classify evidence with OpenAI.
+Python 3.10+; no third-party packages required.
 
-## Start here: VS Code Run button
+## Start in VS Code — Windows
 
-Open `scan_item1c.py` and click **Run Python File in Terminal**. No command-line
-arguments are needed: the script asks for company CIKs (Enter selects SoFi) and
-your SEC contact email. It retrieves metadata and scans up to five recent 10-Ks
-within 2020–2026. No OpenAI calls occur in this guided mode.
+1. Open `scan_item1c.py`.
+2. Click **Run Python File in Terminal**.
+3. Enter the company's numeric CIK, e.g. `1818874` for SoFi.
 
-Results appear in `data/item1c.jsonl` **beside the script**, regardless of which
-folder your VS Code terminal starts in. OpenAI analysis remains optional.
-Item 1C generally will not be present for the earlier years in this window.
+Only the CIK is requested. SEC requests use `FraudResearch andy@andyj.tech`.
+No OpenAI key is required and no paid calls occur by default.
 
-Or use PowerShell (replace the email with your own):
-
-```powershell
-python .\scan_item1c.py --ciks 1818874 --email YOUR_EMAIL --limit 1
-```
-
-If your terminal is in the parent folder, use `python .\Financial_fraud\scan_item1c.py`
-instead. Use `--limit 0` to process all qualifying 10-Ks for the supplied CIKs.
-This does not discover the entire financial industry.
-
-A small, standard-library Python starter to see which filings are available.
-It reads SEC company submissions JSON and populates a CSV. It does **not**
-download filing documents, search their text, or call an LLM.
-
-## Run
-
-Python 3.10+; no packages or API keys required. Identify your application and
-provide a real contact email as requested by the SEC:
-
-```bash
-git clone https://github.com/chocojawns/Financial_fraud.git
-cd Financial_fraud
-git switch feature/edgar-item1c-research
-export SEC_USER_AGENT='FraudResearch your-email@example.com'
-python3 edgar_inventory.py
-```
-
-Open `data/filings.csv` in a spreadsheet. Columns include company, CIK, SIC,
-form, filing date, report date, accession number, and a clickable EDGAR URL.
-Each successful run replaces the CSV; a failed company request leaves any
-existing CSV untouched and returns a nonzero exit status.
-
-The default sample is JPMorgan Chase, Bank of America, Wells Fargo, Citigroup,
-Goldman Sachs, and Morgan Stanley. This is **not** a complete sector census.
-Supply other company CIKs to expand the sample:
-
-```bash
-python3 edgar_inventory.py --ciks 19617 70858 --since 2024-01-01 --forms 10-K 8-K
-```
-
-## Scope and research limits
-
-- Uses SIC 6000–6799 as an initial financial-services filter. This includes
-  insurance and real estate and may omit fintech companies classified elsewhere.
-  Override with `--sic-min` and `--sic-max` for a narrower range.
-- Reads only `filings.recent` from each company's submissions endpoint. SEC
-  limits this recent collection; the date filter does not guarantee complete
-  coverage back to the requested date. Older metadata archives are not fetched.
-- Exact form filters omit amendments such as `10-K/A` unless explicitly supplied.
-- Lists available filings; it does not establish that they mention fraud.
-- Item 1.06 is a section of an 8-K, not a separate form. Finding that section
-  or fraud disclosures requires a later text-analysis step.
-- No financial amounts or claims about fraud's economic ranking are inferred.
-
-SEC endpoints: `https://data.sec.gov/submissions/CIK##########.json`.
-See [SEC API documentation](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
-and [automated access guidance](https://www.sec.gov/about/developer-resources).
-Requests are sequential and paced. On access errors, check the identifying
-User-Agent and network policy; do not bypass SEC access controls.
-
-## Validate
-
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-These offline tests cover filtering and source URLs. They do not verify live
-SEC connectivity. Future OpenAI analysis can consume selected filing text after
-you choose the companies and disclosures worth examining.
-
-## VS Code on Windows
-
-Clone the repository, select the feature branch, and open the folder in VS Code.
-The scripts use only Python's standard library. In the PowerShell terminal:
+Or run from the repository folder in PowerShell:
 
 ```powershell
-$env:SEC_USER_AGENT = 'FraudResearch your-email@example.com'
+python .\scan_item1c.py
+```
+
+If your terminal is in the parent folder:
+
+```powershell
+python .\Financial_fraud\scan_item1c.py
+```
+
+## Debian
+
+Open the same repository folder and run:
+
+```bash
+python3 scan_item1c.py
+```
+
+Both operating systems use the same code and outputs. The user's current machine
+is Windows; Debian will also be used during this project.
+
+## Default search
+
+- Filing dates **2020-01-01 through 2026-12-31**, limited to filings currently available.
+- **All form types** available in the company's SEC submissions metadata, including
+  overlapping historical submissions files. Amendments are included.
+- The **entire primary filing document** and additional HTML/text documents,
+  including exhibits, rather than only Item 1C.
+- All eligible filings; successful previous scans in the same output are skipped.
+- Keywords include fraud, scams, account takeover, identity theft, synthetic
+  identity, unauthorized transactions, phishing, social engineering, ransomware,
+  AI, embezzlement, misappropriation, money laundering, and chargebacks.
+
+This does **not** search PDFs/images, XBRL-only attachments, related companies'
+CIKs, or confidential reports. Some scanned forms contain no useful narrative.
+It is not an exhaustive EDGAR full-text search. Filing metadata failures and
+unreadable documents remain distinguishable from successful zero-match scans.
+
+## Outputs
+
+Saved beside the script, regardless of the terminal's starting directory:
+
+- `data/fraud_scan.csv`: spreadsheet with company, CIK, SIC, form, dates, source
+  URL, keywords, passage text, associated XBRL tag names, and status/error.
+- `data/fraud_scan.jsonl`: detailed evidence, including extracted text, document
+  hashes, tag contexts, and optional model output.
+
+Output is appended. Repeat successful filings are skipped unless `--rescan` is
+used. Old runs and rescans can coexist, so deduplicate before statistical work.
+Passage windows can overlap; they are **not distinct incident counts**.
+
+## Useful commands
+
+```powershell
+# A quick first test
 python scan_item1c.py --ciks 1818874 --limit 1
+
+# Faster pass without exhibits
+python scan_item1c.py --ciks 1818874 --primary-only
+
+# Only annual, quarterly, and current reports, including amendments
+python scan_item1c.py --ciks 1818874 --forms 10-K 10-K/A 10-Q 10-Q/A 8-K 8-K/A
+
+# Multiple companies
+python scan_item1c.py --ciks 19617 70858 72971
+
+# Item 1C only
+python scan_item1c.py --ciks 1818874 --forms 10-K --section item1c
+
+# Local HTML: no SEC connection required
+python scan_item1c.py --html company-10k.htm
+
+# Optional paid analysis: set OPENAI_API_KEY securely first
+python scan_item1c.py --ciks 1818874 --limit 1 --llm --model YOUR_MODEL
+
+# Tests
 python -m unittest discover -s tests -v
 ```
 
-Replace the contact email with your own. For optional LLM analysis, set
-`OPENAI_API_KEY` securely in your local environment and choose your model as
-described in [RESEARCH.md](RESEARCH.md). The scripts do not automatically load
-`.env` files. Do not commit API keys or generated research outputs.
+On Debian use `python3` in place of `python`. Set `--since` and `--until` to
+change filing dates; they do not select fiscal years or incident dates.
+Use `--output data/my-run.jsonl` for a separate research run. The tool creates
+its companion CSV. SEC contact can be overridden with `--email` or
+`SEC_USER_AGENT`. The scripts do not automatically load `.env` files.
+
+OpenAI credentials belong in secure environment variables, never Git or chat.
+Calls require explicit `--llm` and a compatible model supporting Chat Completions
+JSON object output. A large filing can contain many billable passages: `--limit`
+caps filings, not API calls. Start small.
+
+## Research goal and limits
+
+The goal is to investigate fraud's impact on **S&P 500 Financials**. A CIK scan
+is one company's evidence collection, not a sector-wide result. SIC codes are
+retained as metadata, not used to exclude a requested company. There is no
+current S&P 500/GICS membership filter; companies and subsidiaries must be
+mapped to a dated constituent list before making sector claims.
+
+Keyword matches may describe hypothetical risks, controls, allegations, or
+actual incidents. AI/cyber mentions are not automatically fraud. Missing
+financial amounts are not zero. Disclosed losses, provisions, reimbursements,
+fines, insurance recoveries, and prevention spending need separate review.
+
+A tag surrounding a passage may be a broad text-block tag, not a fraud accounting
+measure. Definitions and contexts must be checked. See [RESEARCH.md](RESEARCH.md)
+for interpretation and validation limits.
+
+## SEC access
+
+Requests are sequential and paced with TLS verification enabled. A 403 may be a
+network-policy denial or an SEC access restriction; do not bypass either.
+Network access is needed to `data.sec.gov` and `www.sec.gov`; optional OpenAI
+analysis also needs `api.openai.com`.

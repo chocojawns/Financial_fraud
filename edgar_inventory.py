@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 # A small starting sample, not a complete financial-services universe.
 SAMPLE_CIKS = ['19617', '70858', '72971', '831001', '886982', '895421']
+DEFAULT_USER_AGENT = 'FraudResearch andy@andyj.tech'
 FIELDS = ['company', 'cik', 'sic', 'sic_description', 'form', 'filing_date',
           'report_date', 'accession', 'primary_document', 'edgar_url']
 
@@ -58,8 +59,8 @@ def filing_rows(company, forms, since, sic_min=6000, sic_max=6799):
     try:
         sic = int(company.get('sic', ''))
     except (TypeError, ValueError):
-        return
-    if not sic_min <= sic <= sic_max:
+        sic = ''
+    if sic_min is not None and (sic == '' or not sic_min <= sic <= sic_max):
         return
     recent = company.get('filings', {}).get('recent', {})
     for index, form in enumerate(recent.get('form', [])):
@@ -98,7 +99,7 @@ def main():
             raise ValueError()
     except ValueError:
         parser.error('Use numeric CIKs, a YYYY-MM-DD date, and an ordered SIC range.')
-    user_agent = os.environ.get('SEC_USER_AGENT', '').strip()
+    user_agent = os.environ.get('SEC_USER_AGENT', DEFAULT_USER_AGENT).strip()
     if not user_agent:
         parser.error('Set SEC_USER_AGENT to your project name and contact email.')
 

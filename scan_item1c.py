@@ -1,4 +1,4 @@
-"""Step 1: extract Item 1C, keyword evidence, and enclosing Inline XBRL tags.
+"""Scan EDGAR filings for fraud/cyber evidence and enclosing Inline XBRL tags.
 
 Python standard library only. Local HTML and inventory CSV inputs are supported.
 """
@@ -15,7 +15,7 @@ import time
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from edgar_inventory import company_history, filing_rows
+from edgar_inventory import DEFAULT_USER_AGENT, company_history, filing_rows
 
 
 TERMS = {
@@ -31,6 +31,10 @@ TERMS = {
     'ransomware': r'\bransomware\b',
     'deepfake': r'\bdeep[- ]?fakes?\b',
     'AI': r'\b(?:AI|artificial\s+intelligence|generative\s+AI)\b',
+    'embezzlement': r'\bembezzl\w*\b',
+    'money laundering': r'\bmoney\s+laundering\b',
+    'misappropriation': r'\bmisappropriat\w*\b',
+    'chargeback': r'\bchargebacks?\b',
 }
 PATTERNS = {name: re.compile(pattern, re.I) for name, pattern in TERMS.items()}
 START = re.compile(r'\bitem\s+1\s*c\s*[. :\-–—]*\s*cybersecurity\b', re.I)
@@ -84,7 +88,7 @@ class FilingParser(HTMLParser):
             self.append(data.replace('\xa0', ' '))
 
 
-def analyze_html(html):
+def analyze_html(html, whole_filing=False):
     parser = FilingParser()
     parser.feed(html)
     text = ''.join(parser.parts)
@@ -94,11 +98,14 @@ def analyze_html(html):
         # Require a closing heading: never silently scan the rest of the 10-K.
         if end and end.start() - match.end() >= 200:
             candidates.append((match.start(), end.start()))
-    if not candidates:
+    if whole_filing and not text.strip():
+        return {'status': 'no_readable_text', 'section': None, 'passages': [], 'tags': []}
+    if not whole_filing and not candidates:
         return {'status': 'section_not_found_or_unreliable', 'section': None,
                 'passages': [], 'tags': []}
     # TOC entries are normally short. Retain offsets and require manual review.
-    start, end = max(candidates, key=lambda pair: pair[1] - pair[0])
+    start, end = ((0, len(text)) if whole_filing else
+                  max(candidates, key=lambda pair: pair[1] - pair[0]))
     section = text[start:end]
     windows = []
     for pattern in PATTERNS.values():
@@ -112,7 +119,10 @@ def analyze_html(html):
         else:
             merged.append([left, right])
     passages = []
-    for left, right in merged:
+    # Keep evidence chunks within spreadsheet and typical LLM input sizes.
+    chunks = [(left, min(left + 6000, right))
+              for first, right in merged for left in range(first, right, 5800)]
+    for left, right in chunks:
         passage = section[left:right]
         passages.append({
             'text': passage, 'start': left, 'end': right,
@@ -168,6 +178,64 @@ def classify(passage, model, api_key):
             'usage': result.get('usage', {}), 'needs_human_review': True}
 
 
+def export_csv(jsonl_path):
+    """Spreadsheet evidence, including zero-match and failed filings."""
+    csv_path = jsonl_path.with_suffix('.csv')
+    fields = ['company', 'cik', 'sic', 'form', 'filing_date', 'report_date',
+              'accession', 'source_url', 'scan_scope', 'status', 'error',
+              'keywords', 'text', 'xbrl_tags', 'llm_classification']
+    with jsonl_path.open(encoding='utf-8') as source, \
+         csv_path.open('w', newline='', encoding='utf-8-sig') as output:
+        writer = csv.DictWriter(output, fieldnames=fields)
+        writer.writeheader()
+        for line in source:
+            record = json.loads(line)
+            filing = record.get('filing', {})
+            for passage in record.get('passages') or [{}]:
+                row = {key: filing.get(key, '') for key in fields}
+                row.update({
+                    'cik': filing.get('cik', record.get('cik', '')),
+                    'source_url': passage.get('document_url', record.get('document_url', filing.get('edgar_url', ''))),
+                    'scan_scope': record.get('scan_scope', ''),
+                    'status': record.get('status', ''), 'error': record.get('error', ''),
+                    'keywords': '; '.join(passage.get('keywords', [])),
+                    'text': passage.get('text', ''),
+                    'xbrl_tags': '; '.join(sorted({fact['name'] for fact in passage.get('tags', [])})),
+                    'llm_classification': passage.get('llm', {}).get('result', {}).get('classification', ''),
+                })
+                writer.writerow({k: "'" + v if isinstance(v, str) and
+                                 v.lstrip().startswith(('=', '+', '-', '@')) else v
+                                 for k, v in row.items()})
+    return csv_path
+
+
+def scan_key(filing, scope):
+    return (filing.get('cik'), filing.get('accession'), scope)
+
+
+def read_sec(url, user_agent):
+    try:
+        with urlopen(Request(url, headers={'User-Agent': user_agent}), timeout=45) as response:
+            return response.read()
+    finally:
+        time.sleep(0.25)
+
+
+def exhibit_urls(primary_url, accession, user_agent):
+    directory_url = primary_url.rsplit('/', 1)[0] + '/'
+    listing = json.loads(read_sec(directory_url + 'index.json', user_agent))
+    # Avoid the combined submission: it repeats documents and contains SGML headers.
+    combined = {accession + '.txt', accession.replace('-', '') + '.txt'}
+    urls = []
+    for item in listing['directory']['item']:
+        name = item.get('name', '')
+        if name.lower().endswith(('.htm', '.html', '.txt')) and name not in combined:
+            url = directory_url + quote(name, safe='')
+            if url != primary_url and url not in urls:
+                urls.append(url)
+    return urls
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     source = ap.add_mutually_exclusive_group(required=True)
@@ -175,28 +243,37 @@ def main(argv=None):
     source.add_argument('--inventory', type=Path, help='CSV from edgar_inventory.py')
     source.add_argument('--ciks', nargs='+', help='Retrieve 10-Ks directly by company CIK')
     ap.add_argument('--email', help='Contact email for the SEC User-Agent; not an API key')
-    ap.add_argument('--output', type=Path,
-                    default=Path(__file__).resolve().parent / 'data/item1c.jsonl')
+    ap.add_argument('--output', type=Path, help='Output JSONL; default data/fraud_scan.jsonl beside script')
+    ap.add_argument('--section', choices=['all', 'item1c'], default='all',
+                    help='Search entire primary documents (default) or Item 1C only')
+    ap.add_argument('--forms', nargs='+', default=['*'],
+                    help='Form types, e.g. 10-K 10-Q 8-K; default * means all forms')
+    ap.add_argument('--rescan', action='store_true', help='Repeat successful filings already in output')
+    ap.add_argument('--primary-only', action='store_true',
+                    help='Skip additional HTML/text documents and exhibits in each filing')
     ap.add_argument('--since', default='2020-01-01')
     ap.add_argument('--until', default='2026-12-31')
-    ap.add_argument('--limit', type=int, default=5, help='Pilot cap; 0 scans all input rows')
+    ap.add_argument('--limit', type=int, default=0, help='Optional filing cap; default 0 scans all input rows')
     ap.add_argument('--llm', action='store_true', help='Enable paid OpenAI analysis')
     ap.add_argument('--model', default=os.environ.get('OPENAI_MODEL'))
     command = list(sys.argv[1:] if argv is None else argv)
     if not command:
-        print('Item 1C research scanner — direct SEC pilot (no OpenAI calls).')
-        print('Press Enter for SoFi and the 2020–2026 filing-date range.')
+        print('EDGAR fraud scanner — all form types, 2020–2026 filing dates.')
+        print('Searches primary documents, not just Item 1C. No OpenAI calls.')
         try:
-            cik_input = input('Company CIKs, separated by spaces [1818874 = SoFi]: ').strip()
-            ciks = cik_input.replace(',', ' ').split() or ['1818874']
+            cik_input = input('Enter company CIK (or several, separated by spaces): ').strip()
+            ciks = cik_input.replace(',', ' ').split()
+            if not ciks:
+                ap.error('Enter a CIK, such as 1818874 for SoFi.')
             command = ['--ciks', *ciks]
-            if not os.environ.get('SEC_USER_AGENT'):
-                email = input('Your contact email for SEC requests: ').strip()
-                command.extend(['--email', email])
         except (EOFError, KeyboardInterrupt):
-            ap.error('For a noninteractive run use --ciks 1818874 --email YOUR_EMAIL, '
+            ap.error('For a noninteractive run use --ciks 1818874, '
                      'or --html PATH, or --inventory PATH.')
     args = ap.parse_args(command)
+    if args.output is None:
+        args.output = Path(__file__).resolve().parent / 'data' / 'fraud_scan.jsonl'
+    if args.output.suffix.lower() != '.jsonl':
+        ap.error('--output must end in .jsonl; the companion .csv is generated automatically')
     if args.limit < 0:
         ap.error('--limit must be nonnegative')
     for date in (args.since, args.until):
@@ -210,9 +287,7 @@ def main(argv=None):
     if args.llm and (not key or not args.model):
         ap.error('--llm requires OPENAI_API_KEY and --model or OPENAI_MODEL')
     user_agent = (f'FraudResearch {args.email}' if args.email
-                  else os.environ.get('SEC_USER_AGENT'))
-    if (args.inventory or args.ciks) and not user_agent:
-        ap.error('Supply --email YOUR_EMAIL or set SEC_USER_AGENT for SEC requests')
+                  else os.environ.get('SEC_USER_AGENT') or DEFAULT_USER_AGENT)
     if args.email is not None and ('@' not in args.email or ' ' in args.email):
         ap.error('--email must be your contact email address')
     if args.ciks and any(not cik.isdigit() or len(cik) > 10 for cik in args.ciks):
@@ -223,19 +298,22 @@ def main(argv=None):
     elif args.inventory:
         with args.inventory.open(newline='', encoding='utf-8') as source_file:
             records = [row for row in csv.DictReader(source_file)
-                       if row['form'] == '10-K'
-                       and args.since <= row['filing_date'] <= args.until
-                       and 6000 <= int(row['sic']) <= 6799]
+                       if ('*' in args.forms or row['form'] in args.forms)
+                       and args.since <= row['filing_date'] <= args.until]
     else:
         records = []
         print('Retrieving metadata, including overlapping historical submissions files.')
         for cik in dict.fromkeys(args.ciks):
             try:
                 company = company_history(cik, user_agent, args.since, args.until)
-                matches = [row for row in filing_rows(company, {'10-K'}, args.since)
+                forms = (set(company['filings']['recent'].get('form', []))
+                         if '*' in args.forms else set(args.forms))
+                matches = [row for row in filing_rows(company, forms, args.since,
+                                                      sic_min=None, sic_max=None)
                            if row['filing_date'] <= args.until]
                 records.extend(matches)
-                print(f'{company.get("name", cik)}: {len(matches)} eligible 10-K filings')
+                print(f'{company.get("name", cik)}: {len(matches)} eligible filings '
+                      f'(SIC {company.get("sic", "unknown")})')
             except Exception as error:
                 collection_errors.append({'cik': cik, 'status': 'metadata_error',
                                           'error': f'{type(error).__name__}: {error}'})
@@ -244,19 +322,31 @@ def main(argv=None):
                 time.sleep(0.25)
         records = list({(row['cik'], row['accession']): row for row in records}.values())
         records.sort(key=lambda row: (row['filing_date'], row['cik']), reverse=True)
+    if not records and not collection_errors:
+        ap.error('No eligible filings. Check the CIK, dates and form filter. Nothing was scanned.')
+    if args.output.exists() and not args.rescan and not args.html:
+        completed = set()
+        with args.output.open(encoding='utf-8') as previous:
+            for line in previous:
+                old = json.loads(line)
+                if (old.get('status') == 'extracted_needs_review'
+                        and (not args.llm or all('llm' in p for p in old.get('passages', [])))):
+                    if (args.primary_only or old.get('exhibits_complete')):
+                        completed.add(scan_key(old.get('filing', {}), old.get('scan_scope')))
+        before = len(records)
+        records = [row for row in records if scan_key(row, args.section) not in completed]
+        print(f'Resuming: skipped {before - len(records)} previously scanned filings.')
     if args.limit:
         records = records[:args.limit]
-    if not records and not collection_errors:
-        ap.error('No eligible 10-K filings. Check the dates and financial SIC range '
-                 '(6000–6799). Nothing was scanned.')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     failed = len(collection_errors)
     # Append evidence, never silently overwrite an earlier research run.
     with args.output.open('a', encoding='utf-8') as output:
         for error in collection_errors:
             output.write(json.dumps(error) + '\n')
-        for record in records:
-            result = {'filing': record, 'scan_version': 'item1c-v1'}
+        for index, record in enumerate(records, 1):
+            result = {'filing': record, 'scan_version': 'fraud-v2',
+                      'scan_scope': args.section}
             try:
                 if 'local_html' in record:
                     raw = Path(record['local_html']).read_bytes()
@@ -266,14 +356,39 @@ def main(argv=None):
                     document = quote(record['primary_document'], safe='')
                     url = f'https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{document}'
                     result['document_url'] = url
-                    request = Request(url, headers={'User-Agent': user_agent})
-                    try:
-                        with urlopen(request, timeout=45) as response:
-                            raw = response.read()
-                    finally:
-                        time.sleep(0.25)
+                    raw = read_sec(url, user_agent)
                 result['document_sha256'] = hashlib.sha256(raw).hexdigest()
-                result.update(analyze_html(raw.decode('utf-8', errors='replace')))
+                result.update(analyze_html(raw.decode('utf-8', errors='replace'),
+                                           whole_filing=args.section == 'all'))
+                if result['status'] == 'no_readable_text':
+                    failed += 1
+                for passage in result.get('passages', []):
+                    passage['document_url'] = result.get('document_url', record.get('local_html', ''))
+                result['documents'] = [{
+                    'url': result.get('document_url', record.get('local_html', '')),
+                    'kind': 'primary', 'status': result['status'],
+                    'sha256': result['document_sha256'],
+                }]
+                # Item 1C mode deliberately remains primary-only: exhibit text is
+                # not part of the annual report's Item 1C section.
+                if not args.html and not args.primary_only and args.section == 'all':
+                    for exhibit_url in exhibit_urls(url, record['accession'], user_agent):
+                        print('  Scanning additional document:', exhibit_url.rsplit('/', 1)[-1])
+                        extra_raw = read_sec(exhibit_url, user_agent)
+                        extra = analyze_html(extra_raw.decode('utf-8', errors='replace'), whole_filing=True)
+                        if extra['status'] == 'no_readable_text':
+                            raise ValueError(f'No readable text in {exhibit_url}')
+                        for passage in extra['passages']:
+                            passage['document_url'] = exhibit_url
+                        result['passages'].extend(extra['passages'])
+                        result['documents'].append({
+                            'url': exhibit_url, 'kind': 'additional_document',
+                            'status': extra['status'],
+                            'sha256': hashlib.sha256(extra_raw).hexdigest(),
+                        })
+                    result['exhibits_complete'] = True
+                elif args.section == 'item1c':
+                    result['exhibits_complete'] = True  # Not applicable for section mode.
                 if args.llm:
                     for passage in result['passages']:
                         passage['llm'] = classify(passage['text'], args.model, key)
@@ -284,8 +399,13 @@ def main(argv=None):
                 failed += 1
             output.write(json.dumps(result, ensure_ascii=False) + '\n')
             output.flush()
-            print(record.get('company', record.get('local_html')), result['status'])
+            print(f'[{index}/{len(records)}]', record.get('company', record.get('local_html')),
+                  record.get('form', ''), record.get('filing_date', ''),
+                  result['status'], f'{len(result.get("passages", []))} candidate passages')
     print(f'{len(records)} filings attempted; {failed} errors. Output: {args.output}')
+    print(f'Spreadsheet: {export_csv(args.output)}')
+    print('Keyword matches are candidate disclosures, not confirmed fraud incidents '
+          'or a measure of fraud losses. PDFs/images and XBRL-only attachments are not searched.')
     return int(bool(failed))
 
 
