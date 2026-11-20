@@ -1,0 +1,10 @@
+{
+  "retrieved_on": "2026-11-20",
+  "company_count": 500,
+  "security_rows": 503,
+  "source_url": "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/05c998c3e714b8dc9b621239bbdef92bccefc376/data/constituents.csv",
+  "upstream_source": "Wikipedia via datasets/s-and-p-500-companies",
+  "license": "ODC-PDDL-1.0",
+  "csv_sha256": "0e169ade4be362362abc0bc212690a71467f5b73d88ff63fe06fbfc21a758803",
+  "scope": "Third-party fixed-panel snapshot; not independently verified official or historical S&P membership."
+}

@@ -1,53 +1,80 @@
-# Fraud discovery
+# S&P 500 fraud and cybersecurity discovery
 
-Run `discovery.py`. No arguments, prompts, or API keys.
+Run one file. No arguments, prompts, OpenAI key, cache, or pictures.
+
+**Windows / VS Code:**
 
 ```powershell
 python discovery.py
 ```
 
-On Debian:
+**Debian:**
 
 ```bash
 python3 discovery.py
 ```
 
-The program uses the bundled 76-company S&P 500 Financials snapshot, collects
-2020–2026 annual, quarterly, and current report text plus HTML/text exhibits, and
-looks for fraud discussion and related monetary candidates. SEC requests use the
-hard-coded contact **andrew@johnson.vet**. It makes no OpenAI calls at this stage.
+Python 3.10 or newer. No packages to install. SEC contact is hard-coded as
+**andrew@johnson.vet**.
 
-The list is a third-party snapshot retrieved November 20, 2026, not independently
-verified official membership or historical membership. Source and checksum:
-`universes/sp500_financials_source.json`.
+## What it does
 
-## Output
+1. Reads the bundled 500-company S&P 500 snapshot and sector labels.
+2. Finds all available **8-K and 8-K/A filings from 2020 through today**, including
+   historical SEC submissions metadata.
+3. Searches the full primary 8-K text for fraud/cybersecurity language and item numbers.
+4. Saves source excerpts and compares disclosure counts across all 11 sectors.
 
-- `reports/financials_discovery.md`: readable collection summary and direction.
-- `data/financials_discovery.csv`: excerpts and source links.
-- `data/financials_discovery_amounts.csv`: unreviewed monetary candidates and tags.
-- `data/financials_discovery_coverage.csv`: scanned filings and failures.
+**Item 1.06** covers material cybersecurity incidents. There is no current 8-K
+Item 1.05. Items 4.02, 5.02, 7.01, 8.01, and 9.01 can contain relevant context,
+but they are not exclusive to fraud. Those item numbers alone do not count as a
+fraud/cyber match. Primary documents are searched regardless of item number.
+Exhibits/attachments, PDFs/images, and confidential reports are not searched.
 
-Successful filing scans resume automatically. Dollar amounts are not automatically
-added or treated as realized fraud losses. Missing disclosures are not zero.
-PDFs/images, XBRL-only attachments, and confidential reports are not searched.
+The full scan can take hours. Requests are sequential at no more than two per
+second. No filing files or cache are saved. Each run starts fresh and keeps its
+outputs in a new timestamped folder. Ctrl+C stops collection and saves a partial
+summary. An access denial stops the run rather than repeating it for 500 companies.
 
-## Proof of concept already run
+## Results
 
-Read [the POC report](reports/proof_of_concept/DISCOVERY.md) for actual baseline
-numbers, the method, limitations, and the next experiment. It uses the user's
-supplied healthcare/industrial Item 1A text—not Financials results and not LLM output.
+Open the newest folder under `results/`:
 
-To reproduce that baseline, put the original `item_1a_results.json` in `inputs/`.
-Running `discovery.py` produces the baseline first, then attempts Financials collection.
-Raw input is ignored by Git. The source checksum is included in the POC manifest.
+- **DISCOVERY.md** — written method, sector comparison, limitations, and next steps.
+- **sector_summary.csv** — filing counts and company disclosure percentages by sector.
+- **findings.csv** — candidate passages, item context, company, sector, date, and SEC link.
+- **filings.csv** — a record of each attempted 8-K document, including zero matches and errors.
+- **coverage.csv** — complete, partial, failed, and unstarted companies.
 
-## Current blocker
+These are **disclosure counts**, not confirmed fraud events, attacks, or losses.
+Amendments and repeated reports can describe the same event. Company percentages
+use fully scanned companies only. Partial coverage must not be treated as no fraud.
+Review the excerpts before drawing conclusions or comparing sector rankings.
 
-This cloud environment currently denies SEC requests. Enable `data.sec.gov` and
-`www.sec.gov` in its settings. The program records a clear blocked report rather
-than claiming zero fraud. The same program can run on Windows or Debian where
-SEC access is permitted.
+`companies.csv` is a third-party fixed-panel snapshot retrieved November 20, 2026,
+not independently verified official or historical membership. Source, license,
+and checksum are in `companies_source.json`. Multiple share classes with the same
+CIK are scanned once. Item 1.06 reporting began in December 2023; changes across
+that date can reflect new reporting rules rather than more incidents.
+
+## GitHub
+
+Use **main**. To update an existing checkout:
+
+```powershell
+git switch main
+git pull origin main
+python discovery.py
+```
+
+If GitHub resets your connection, download **Code → Download ZIP** from main,
+extract it, and open that folder in VS Code.
+
+## SEC access
+
+This cloud environment has previously denied SEC requests. Its network settings
+must allow `data.sec.gov` and `www.sec.gov`. No API key is needed for SEC access.
+The program reports failures explicitly and does not bypass access restrictions.
 
 ## Tests
 
@@ -55,6 +82,4 @@ SEC access is permitted.
 python -m unittest discover -s tests -v
 ```
 
-The older scanner is retained as an internal helper in `_edgar_scanner.py`.
-There is no need to run it or supply its advanced options. LLM integration can
-be revisited after the discovery evidence supports a specific research direction.
+Tests simulate SEC responses. They do not establish live SEC availability.

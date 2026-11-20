@@ -1,2 +1,0 @@
-{"cik": "19617", "status": "metadata_error", "error": "URLError: <urlopen error Tunnel connection failed: 403 Forbidden>", "scan_version": "fraud-financial-v1", "focus": "financial", "scan_scope": "all", "financial_discovery_status": "incomplete_scan"}
-{"cik": "70858", "status": "metadata_error", "error": "URLError: <urlopen error Tunnel connection failed: 403 Forbidden>", "scan_version": "fraud-financial-v1", "focus": "financial", "scan_scope": "all", "financial_discovery_status": "incomplete_scan"}

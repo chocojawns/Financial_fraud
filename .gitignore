@@ -1,4 +1,7 @@
 __pycache__/
-data/
+*.pyc
 .env
+results/
+# Preserve private/local inputs from earlier versions outside Git.
 inputs/*.json
+data/
