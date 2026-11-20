@@ -1,179 +1,60 @@
-# EDGAR fraud research
+# Fraud discovery
 
-Research question: **Which companies separately disclose fraud-related financial
-amounts, what do those amounts represent, and where are they reported?**
-
-Search EDGAR filings for explicit fraud language and monetary candidates, preserve
-quotes and XBRL tags, and optionally classify the evidence with OpenAI.
-Python 3.10+; no third-party packages required.
-
-## Start in VS Code — Windows
-
-1. Open `discovery.py`.
-2. Click **Run Python File in Terminal**.
-3. Enter the company's numeric CIK, e.g. `1818874` for SoFi.
-
-Only the CIK is requested. SEC requests use `FraudResearch andy@andyj.tech`.
-No OpenAI key is required and no paid calls occur by default.
-
-Or run from the repository folder in PowerShell:
+Run `discovery.py`. No arguments, prompts, or API keys.
 
 ```powershell
-python .\discovery.py
+python discovery.py
 ```
 
-If your terminal is in the parent folder:
-
-```powershell
-python .\Financial_fraud\discovery.py
-```
-
-## Debian
-
-Open the same repository folder and run:
+On Debian:
 
 ```bash
 python3 discovery.py
 ```
 
-Both operating systems use the same code and outputs. The user's current machine
-is Windows; Debian will also be used during this project.
+The program uses the bundled 76-company S&P 500 Financials snapshot, collects
+2020–2026 annual, quarterly, and current report text plus HTML/text exhibits, and
+looks for fraud discussion and related monetary candidates. SEC requests use the
+hard-coded contact **andrew@johnson.vet**. It makes no OpenAI calls at this stage.
 
-## Start with two companies, then scale
+The list is a third-party snapshot retrieved November 20, 2026, not independently
+verified official membership or historical membership. Source and checksum:
+`universes/sp500_financials_source.json`.
 
-From the repository folder on Windows:
+## Output
 
-```powershell
-# Two latest pending annual reports per company: JPMorgan Chase and Bank of America
-python discovery.py --cik-file examples/pilot_ciks.txt --forms 10-K --pilot
-```
+- `reports/financials_discovery.md`: readable collection summary and direction.
+- `data/financials_discovery.csv`: excerpts and source links.
+- `data/financials_discovery_amounts.csv`: unreviewed monetary candidates and tags.
+- `data/financials_discovery_coverage.csv`: scanned filings and failures.
 
-Review `data/fraud_financials_amounts.csv` and `data/fraud_financials_coverage.csv`.
-Every amount starts as **unreviewed**, not a confirmed fraud loss. Copy the amounts
-CSV to a separate review file before editing it; generated reports are rebuilt.
+Successful filing scans resume automatically. Dollar amounts are not automatically
+added or treated as realized fraud losses. Missing disclosures are not zero.
+PDFs/images, XBRL-only attachments, and confidential reports are not searched.
 
-To scale, create `financials_ciks.txt` with one numeric CIK per line, using a
-dated S&P 500 Financials membership list. Then run:
+## Proof of concept already run
 
-```powershell
-python discovery.py --cik-file financials_ciks.txt --forms 10-K 10-K/A 10-Q 10-Q/A 8-K 8-K/A
-```
+Read [the POC report](reports/proof_of_concept/DISCOVERY.md) for actual baseline
+numbers, the method, limitations, and the next experiment. It uses the user's
+supplied healthcare/industrial Item 1A text—not Financials results and not LLM output.
 
-A CSV with a `cik` column also works. The program does not invent a constituent
-list. Omit `--pilot` to scan all qualifying filings. It resumes successful filings
-from the same output; failed/incomplete ones are retried. On Debian use `python3`.
+To reproduce that baseline, put the original `item_1a_results.json` in `inputs/`.
+Running `discovery.py` produces the baseline first, then attempts Financials collection.
+Raw input is ignored by Git. The source checksum is included in the POC manifest.
 
-## Default search
+## Current blocker
 
-- Filing dates **2020-01-01 through 2026-12-31**, limited to filings currently available.
-- **All form types** available in the company's SEC submissions metadata, including
-  overlapping historical submissions files. Amendments are included.
-- The **entire primary filing document** and additional HTML/text documents,
-  including exhibits, rather than only Item 1C.
-- All eligible filings; successful previous scans in the same output are skipped.
-- Default financial focus searches explicit fraud indicators: fraud, scams,
-  account takeover, identity theft, synthetic identity, unauthorized transactions,
-  business email compromise, embezzlement, and misappropriation.
-- `--focus discovery` restores the broader AI/cyber keyword exploration.
+This cloud environment currently denies SEC requests. Enable `data.sec.gov` and
+`www.sec.gov` in its settings. The program records a clear blocked report rather
+than claiming zero fraud. The same program can run on Windows or Debian where
+SEC access is permitted.
 
-This does **not** search PDFs/images, XBRL-only attachments, related companies'
-CIKs, or confidential reports. Some scanned forms contain no useful narrative.
-It is not an exhaustive EDGAR full-text search. Filing metadata failures and
-unreadable documents remain distinguishable from successful zero-match scans.
+## Tests
 
-## Outputs
-
-Saved beside the script, regardless of the terminal's starting directory:
-
-- `data/fraud_financials_amounts.csv`: one row per monetary candidate, supporting
-  quote, suggested category, currency marker, numeric magnitude, review status,
-  and tags on the amount versus elsewhere in its passage.
-- `data/fraud_financials_coverage.csv`: filing coverage, errors, and whether the
-  scan found candidate amounts, fraud discussion without an amount, or no fraud terms.
-- `data/fraud_financials.csv`: spreadsheet with company, CIK, SIC, form, dates, source
-  URL, keywords, passage text, associated XBRL tag names, and status/error.
-- `data/fraud_financials.jsonl`: detailed evidence, including extracted text, document
-  hashes, tag contexts, and optional model output.
-
-Output is appended. Repeat successful filings are skipped unless `--rescan` is
-used. Amount/coverage reports select the latest attempt per filing/scope/focus
-for the current scan version. The broad passage CSV includes the full run history.
-Different filings can repeat the same loss; deduplicate events before statistical work.
-Passage windows can overlap; they are **not distinct incident counts**.
-
-## Useful commands
-
-```powershell
-# A quick first test
-python discovery.py --ciks 1818874 --limit 1
-
-# Faster pass without exhibits
-python discovery.py --ciks 1818874 --primary-only
-
-# Only annual, quarterly, and current reports, including amendments
-python discovery.py --ciks 1818874 --forms 10-K 10-K/A 10-Q 10-Q/A 8-K 8-K/A
-
-# Multiple companies
-python discovery.py --ciks 19617 70858 72971
-
-# Item 1C only
-python discovery.py --ciks 1818874 --forms 10-K --section item1c
-
-# Local HTML: no SEC connection required
-python discovery.py --html company-10k.htm
-
-# Optional paid analysis: set OPENAI_API_KEY securely first
-python discovery.py --ciks 1818874 --limit 1 --llm --model YOUR_MODEL
-
-# Tests
+```bash
 python -m unittest discover -s tests -v
 ```
 
-On Debian use `python3` in place of `python`. Set `--since` and `--until` to
-change filing dates; they do not select fiscal years or incident dates.
-Use `--output data/my-run.jsonl` for a separate research run. The tool creates
-its companion CSV. SEC contact can be overridden with `--email` or
-`SEC_USER_AGENT`. The scripts do not automatically load `.env` files.
-
-OpenAI credentials belong in secure environment variables, never Git or chat.
-Calls require explicit `--llm` and a compatible model supporting Chat Completions
-JSON object output. A large filing can contain many billable passages: `--limit`
-caps filings, not API calls. Start small.
-
-## Research goal and limits
-
-The goal is to investigate fraud's impact on **S&P 500 Financials**. A CIK scan
-is one company's evidence collection, not a sector-wide result. SIC codes are
-retained as metadata, not used to exclude a requested company. There is no
-current S&P 500/GICS membership filter; companies and subsidiaries must be
-mapped to a dated constituent list before making sector claims.
-
-Keyword matches may describe hypothetical risks, controls, allegations, or
-actual incidents. AI/cyber mentions are not automatically fraud. Missing
-financial amounts are not zero. Disclosed losses, provisions, reimbursements,
-fines, insurance recoveries, and prevention spending need separate review.
-
-Amounts are found through fraud/money co-occurrence within a sentence, not by
-assuming every number near fraud is a loss. Even this co-occurrence can be
-misleading: review attribution, whether the company bore the cost, and the period.
-Ordinary credit losses/defaults without explicit fraud language do not qualify.
-Tables, shared units, and indirect references can be missed. Currency stays
-unknown when only `$` is present; normalized numbers are magnitudes, not signed
-accounting facts. There is no automatic sum or fraud-loss total.
-
-Suggested categories distinguish losses, provisions/liabilities, reimbursements,
-recoveries, insurance recoveries, fines/settlements, and prevention/remediation
-costs. Mixed evidence remains ambiguous. Accounting line and amount period stay
-blank unless explicitly supported in optional LLM output or filled by a reviewer;
-the filing date is never substituted for the amount's reporting period.
-
-A tag surrounding a passage may be a broad text-block tag, not a fraud accounting
-measure. Definitions and contexts must be checked. See [RESEARCH.md](RESEARCH.md)
-for interpretation and validation limits.
-
-## SEC access
-
-Requests are sequential and paced with TLS verification enabled. A 403 may be a
-network-policy denial or an SEC access restriction; do not bypass either.
-Network access is needed to `data.sec.gov` and `www.sec.gov`; optional OpenAI
-analysis also needs `api.openai.com`.
+The older scanner is retained as an internal helper in `_edgar_scanner.py`.
+There is no need to run it or supply its advanced options. LLM integration can
+be revisited after the discovery evidence supports a specific research direction.

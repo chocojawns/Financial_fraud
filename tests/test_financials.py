@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from fraud_financials import VERSION, enrich, financial_candidates, export_financial_reports, load_ciks
-from discovery import analyze_html, classify, main
+from _edgar_scanner import analyze_html, classify, main
 
 
 class FinancialTests(unittest.TestCase):
@@ -98,9 +98,9 @@ class FinancialTests(unittest.TestCase):
                 'accessionNumber': [f'{cik}-a', f'{cik}-b', f'{cik}-c'],
                 'primaryDocument': ['annual.htm'] * 3}}}
         with tempfile.TemporaryDirectory() as folder, \
-             patch('discovery.company_history', side_effect=company), \
-             patch('discovery.read_sec', return_value=b'<p>Fraud losses were USD 2 million.</p>') as fetch, \
-             patch('discovery.time.sleep'), patch('builtins.print'):
+             patch('_edgar_scanner.company_history', side_effect=company), \
+             patch('_edgar_scanner.read_sec', return_value=b'<p>Fraud losses were USD 2 million.</p>') as fetch, \
+             patch('_edgar_scanner.time.sleep'), patch('builtins.print'):
             output = Path(folder) / 'pilot.jsonl'
             self.assertEqual(main(['--ciks', '19617', '70858', '--pilot', '--primary-only',
                                    '--output', str(output)]), 0)
@@ -112,7 +112,7 @@ class FinancialTests(unittest.TestCase):
     def test_llm_account_and_period_require_source_support(self):
         text = 'For 2025, fraud losses of USD 2 million were reported in Other expense.'
         value = {'classification': 'actual_incident', 'summary': 'Fraud losses disclosed.',
-                 'ai_connection': 'absent', 'evidence_quotes': [text],
+                 'ai_connection': 'absent', 'fraud_relevant': True, 'company_role': 'victim', 'evidence_quotes': [text],
                  'financial_findings': [{
                      'category': 'loss', 'amount_text': 'USD 2 million',
                      'evidence_quote': text, 'accounting_location': 'Other expense',
@@ -120,7 +120,7 @@ class FinancialTests(unittest.TestCase):
         def response():
             return json.dumps({'choices': [{'finish_reason': 'stop', 'message': {
                 'content': json.dumps(value)}}]}).encode()
-        with patch('discovery.urlopen') as fetch:
+        with patch('_edgar_scanner.urlopen') as fetch:
             fetch.return_value.__enter__.return_value.read.side_effect = response
             reviewed = classify(text, 'test-model', 'test-key')
             passage = self.passage(text)
@@ -132,7 +132,7 @@ class FinancialTests(unittest.TestCase):
             self.assertEqual(finding['review_status'], 'unreviewed')
             value['financial_findings'][0]['period_text'] = '2022'
             with self.assertRaises(ValueError):
-                classify(text, 'test-model', 'test-key')
+                classify(text + ' Additional context.', 'test-model', 'test-key')
 
 
 if __name__ == '__main__':

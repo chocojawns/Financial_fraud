@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from discovery import analyze_html, classify, main
+from _edgar_scanner import analyze_html, classify, main
 
 
 BODY = ('We assess cybersecurity risks and maintain an information security '
@@ -56,7 +56,7 @@ class Item1CTests(unittest.TestCase):
                                           'summary': 'unsupported',
                                           'ai_connection': 'absent',
                                           'evidence_quotes': ['invented incident']})}}]}).encode()
-        with patch('discovery.urlopen', return_value=Response()):
+        with patch('_edgar_scanner.urlopen', return_value=Response()):
             with self.assertRaises(ValueError):
                 classify('We manage fraud risk.', 'test-model', 'test-key')
 
@@ -67,7 +67,7 @@ class Item1CTests(unittest.TestCase):
             source.write_text(f'<h2>Item 1C. Cybersecurity</h2><p>{BODY}'
                               'We train employees against phishing.</p>'
                               '<h2>Item 2. Properties</h2>')
-            run = subprocess.run([sys.executable, 'discovery.py', '--html',
+            run = subprocess.run([sys.executable, '_edgar_scanner.py', '--html',
                                   str(source), '--focus', 'discovery', '--output', str(output)],
                                  capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stderr)
@@ -91,16 +91,16 @@ class Item1CTests(unittest.TestCase):
             def read(self):
                 return html
         with tempfile.TemporaryDirectory() as folder, \
-             patch('discovery.__file__', str(Path(folder) / 'discovery.py')), \
+             patch('_edgar_scanner.__file__', str(Path(folder) / '_edgar_scanner.py')), \
              patch.dict('os.environ', {'SEC_USER_AGENT': ''}), \
              patch('builtins.input', side_effect=['1818874']), \
              patch('builtins.print'), \
-             patch('discovery.exhibit_urls', return_value=[]), \
-             patch('discovery.company_history', return_value=company) as history, \
-             patch('discovery.urlopen', return_value=Response()), \
-             patch('discovery.time.sleep'):
+             patch('_edgar_scanner.exhibit_urls', return_value=[]), \
+             patch('_edgar_scanner.company_history', return_value=company) as history, \
+             patch('_edgar_scanner.urlopen', return_value=Response()), \
+             patch('_edgar_scanner.time.sleep'):
             self.assertEqual(main([]), 0)
-            history.assert_called_once_with('1818874', 'FraudResearch andy@andyj.tech',
+            history.assert_called_once_with('1818874', 'FraudResearch andrew@johnson.vet',
                                             '2020-01-01', '2026-12-31')
             output = Path(folder) / 'data' / 'fraud_financials.jsonl'
             record = json.loads(output.read_text())
@@ -108,10 +108,10 @@ class Item1CTests(unittest.TestCase):
 
     def test_metadata_failure_returns_failure_with_evidence(self):
         with tempfile.TemporaryDirectory() as folder, \
-             patch('discovery.company_history', side_effect=TimeoutError('timed out')), \
-             patch('discovery.time.sleep'), patch('builtins.print'):
+             patch('_edgar_scanner.company_history', side_effect=TimeoutError('timed out')), \
+             patch('_edgar_scanner.time.sleep'), patch('builtins.print'):
             output = Path(folder) / 'errors.jsonl'
-            result = main(['--ciks', '1818874', '--email', 'research@example.org',
+            result = main(['--ciks', '1818874',
                            '--output', str(output)])
             self.assertEqual(result, 1)
             self.assertEqual(json.loads(output.read_text())['status'], 'metadata_error')
@@ -131,9 +131,9 @@ class Item1CTests(unittest.TestCase):
             'filingDate': ['2026-01-01'] * 3,
             'accessionNumber': ['a', 'b', 'c'], 'primaryDocument': ['a.htm'] * 3}}}
         with tempfile.TemporaryDirectory() as folder, \
-             patch('discovery.company_history', return_value=company), \
-             patch('discovery.urlopen') as fetch, \
-             patch('discovery.time.sleep'), patch('builtins.print'):
+             patch('_edgar_scanner.company_history', return_value=company), \
+             patch('_edgar_scanner.urlopen') as fetch, \
+             patch('_edgar_scanner.time.sleep'), patch('builtins.print'):
             fetch.return_value.__enter__.return_value.read.return_value = b'<p>Fraud risk.</p>'
             output = Path(folder) / 'result.jsonl'
             command = ['--ciks', '19617', '--primary-only', '--output', str(output)]
@@ -160,9 +160,9 @@ class Item1CTests(unittest.TestCase):
             base + 'ex99.htm': b'<p>We incurred fraud losses of $10 million.</p>',
         }
         with tempfile.TemporaryDirectory() as folder, \
-             patch('discovery.company_history', return_value=company), \
-             patch('discovery.read_sec', side_effect=lambda url, ua: documents[url]) as fetch, \
-             patch('discovery.time.sleep'), patch('builtins.print'):
+             patch('_edgar_scanner.company_history', return_value=company), \
+             patch('_edgar_scanner.read_sec', side_effect=lambda url, ua: documents[url]) as fetch, \
+             patch('_edgar_scanner.time.sleep'), patch('builtins.print'):
             output = Path(folder) / 'result.jsonl'
             self.assertEqual(main(['--ciks', '19617', '--output', str(output)]), 0)
             result = json.loads(output.read_text())

@@ -1,0 +1,11 @@
+{
+  "retrieved_on": "2026-11-20",
+  "source_commit": "05c998c3e714b8dc9b621239bbdef92bccefc376",
+  "source_url": "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/05c998c3e714b8dc9b621239bbdef92bccefc376/data/constituents.csv",
+  "upstream_source": "Wikipedia List of S&P 500 companies, via datasets/s-and-p-500-companies",
+  "license": "ODC-PDDL-1.0",
+  "sector_filter": "GICS Sector == Financials",
+  "companies": 76,
+  "csv_sha256": "37bfa0e88991d5ff3cff26170a8dff35b885cd1a0132fe0ba803ae7211649ba2",
+  "scope_note": "Third-party snapshot retrieved on this date, not independently verified official S&P membership and not historical membership for 2020\u20132026."
+}
