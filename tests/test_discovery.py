@@ -51,9 +51,9 @@ class DiscoveryTests(unittest.TestCase):
                 return {'filings': {'recent': recent, 'files': [
                     {'name': 'old.json', 'filingFrom': '2019-01-01', 'filingTo': '2026-01-01'}]}}
         rows = discovery.get_filings(FakeSEC(), '19617', '2026-11-20')
-        self.assertEqual({r['accession'] for r in rows}, {'a', 'c', 'd'})
+        self.assertEqual({r['accession'] for r in rows}, {'a', 'b', 'c', 'd'})
         self.assertEqual(next(r for r in rows if r['accession'] == 'a')['declared_items'], '1.05')
-        self.assertTrue(all(r['form'] in {'8-K', '8-K/A'} for r in rows))
+        self.assertTrue(all(r['form'] in discovery.FORMS for r in rows))
 
     def test_partial_companies_are_excluded_from_percentage(self):
         rows = [dict(sector='Financials', status='complete', scanned_filings=2,
@@ -93,11 +93,16 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(discovery.main(), 0)
             result = next((root / 'results').iterdir())
             self.assertEqual({p.name for p in result.iterdir()},
-                             {'DISCOVERY.md', 'filings.csv', 'findings.csv', 'coverage.csv', 'sector_summary.csv'})
+                             {'DISCOVERY.md', 'filings.csv', 'findings.csv', 'coverage.csv',
+                              'sector_summary.csv', 'company_year.csv', 'amount_candidates.csv'})
             with (result / 'sector_summary.csv').open(encoding='utf-8-sig') as source:
                 rows = list(csv.DictReader(source))
             self.assertEqual(len(rows), 2)
             self.assertTrue(all(r['relevant_percent_of_complete_companies'] == '100.0' for r in rows))
+            with (result / 'company_year.csv').open(encoding='utf-8-sig') as source:
+                panel = list(csv.DictReader(source))
+            self.assertTrue(all(r['status'] == 'complete' for r in panel if r['filing_year'] == '2026'))
+            self.assertTrue(all(r['status'] == 'no_filings_in_window' for r in panel if r['filing_year'] == '2020'))
 
     def test_blocked_run_keeps_unstarted_companies_unknown(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -113,6 +118,40 @@ class DiscoveryTests(unittest.TestCase):
                 rows = list(csv.DictReader(source))
             self.assertEqual([r['status'] for r in rows], ['metadata_error', 'not_started'])
             self.assertIn('no research findings', (result / 'DISCOVERY.md').read_text())
+            with (result / 'company_year.csv').open(encoding='utf-8-sig') as source:
+                self.assertTrue(all(r['status'] == 'unknown_metadata' and r['eligible_filings'] == ''
+                                    for r in csv.DictReader(source)))
+
+    def test_cost_paragraph_far_from_keyword_is_retained(self):
+        text = ('Item 1.05 Material Cybersecurity Incident. Fraud monitoring was increased. '
+                + 'Unrelated operational discussion. ' * 150
+                + 'We estimated expenses of $180 million to $400 million for remediation '
+                'and customer reimbursements relating to this Incident.')
+        result = discovery.inspect(text, '1.05', '8-K')
+        self.assertTrue(any('$180 million' in p['text'] and '$400 million' in p['text']
+                            for p in result['passages']))
+
+    def test_annual_report_does_not_count_as_current_incident_item(self):
+        result = discovery.inspect('Item 1C Cybersecurity. We reference Item 1.05.', '', '10-K')
+        self.assertFalse(result['item_1_05'])
+        self.assertIn('1C', result['items'])
+
+    def test_signals_do_not_claim_verified_events_and_keep_amount_changes(self):
+        from disclosure_evidence import describe
+        first = describe('We could incur fraud losses of $10 million.')
+        second = describe('We could incur fraud losses of $20 million.')
+        self.assertTrue(first['risk_language'])
+        self.assertEqual(first['review_status'], 'unreviewed')
+        self.assertNotEqual(first['evidence_fingerprint'], second['evidence_fingerprint'])
+
+    def test_transient_server_failure_is_retried(self):
+        from urllib.error import HTTPError
+        with patch.object(discovery, 'urlopen') as fetch, patch.object(discovery.time, 'sleep'):
+            response = unittest.mock.MagicMock()
+            response.__enter__.return_value.read.return_value = b'ok'
+            fetch.side_effect = [HTTPError('https://example.org', 502, 'Bad Gateway', {}, None), response]
+            self.assertEqual(discovery.SEC().read('https://example.org'), b'ok')
+            self.assertEqual(fetch.call_count, 2)
 
     def test_bundled_company_snapshot(self):
         root = Path(discovery.__file__).parent

@@ -1,4 +1,4 @@
-# S&P 500 fraud and cybersecurity discovery
+# S&P 500 fraud disclosure discovery
 
 [Debian results: analysis, sector graphs, and corrected Item 1.05 figures](analysis/debian_2026-11-21/README.md).
 The original uploaded scan is preserved. Its `item_106` column and report used an
@@ -25,18 +25,19 @@ Python 3.10 or newer. No packages to install. SEC contact is hard-coded as
 ## What it does
 
 1. Reads the bundled 500-company S&P 500 snapshot and sector labels.
-2. Finds all available **8-K and 8-K/A filings from 2020 through today**, including
+2. Finds all available **10-K, 10-Q, 8-K and amendment filings from 2020 through today**, including
    historical SEC submissions metadata.
-3. Searches the full primary 8-K text for fraud/cybersecurity language and item numbers.
-4. Saves source excerpts and compares disclosure counts across all 11 sectors.
+3. Searches full primary documents for fraud/cybersecurity language and related financial context.
+4. Saves longer source excerpts and company-year evidence for comparisons across all 11 sectors.
 
 **Item 1.05** covers material cybersecurity incidents. Regulation S-K Item 106
 is a separate annual cybersecurity disclosure rule. Items 4.02, 5.02, 7.01, 8.01, and 9.01 can contain relevant context,
 but they are not exclusive to fraud. Those item numbers alone do not count as a
-fraud/cyber match. Primary documents are searched regardless of item number.
+fraud/cyber match. Primary documents are searched regardless of item number. Item 1.05 is counted
+only for 8-K/8-K/A forms, not annual or quarterly reports.
 Exhibits/attachments, PDFs/images, and confidential reports are not searched.
 
-The full scan can take hours. Requests are sequential at no more than two per
+The expanded scan can take substantially longer than the original 8-K-only scan. Requests are sequential at no more than two per
 second. No filing files or cache are saved. Each run starts fresh and keeps its
 outputs in a new timestamped folder. Ctrl+C stops collection and saves a partial
 summary. An access denial stops the run rather than repeating it for 500 companies.
@@ -47,8 +48,12 @@ Open the newest folder under `results/`:
 
 - **DISCOVERY.md** — written method, sector comparison, limitations, and next steps.
 - **sector_summary.csv** — filing counts and company disclosure percentages by sector.
-- **findings.csv** — candidate passages, item context, company, sector, date, and SEC link.
-- **filings.csv** — a record of each attempted 8-K document, including zero matches and errors.
+- **findings.csv** — longer passages, sources, lexical risk/event/allegation/contract flags,
+  financial terms, and exact-text repetition hints within each company. All remain unreviewed.
+- **amount_candidates.csv** — monetary expressions in retained context. Each needs verification
+  of fraud attribution, currency, category, period, and whether it is realized or hypothetical.
+- **company_year.csv** — company/sector/filing-year counts with form-specific totals and coverage status.
+- **filings.csv** — a record of each attempted primary filing document, including zero matches and errors.
 - **coverage.csv** — complete, partial, failed, and unstarted companies.
 
 These are **disclosure counts**, not confirmed fraud events, attacks, or losses.
@@ -80,6 +85,7 @@ extract it, and open that folder in VS Code.
 This cloud environment has previously denied SEC requests. Its network settings
 must allow `data.sec.gov` and `www.sec.gov`. No API key is needed for SEC access.
 The program reports failures explicitly and does not bypass access restrictions.
+Brief retries handle transient gateway/network failures; access denials still stop collection.
 
 ## Tests
 
@@ -92,3 +98,31 @@ Tests simulate SEC responses. They do not establish live SEC availability.
 To reproduce the Debian analysis and graphs, install `matplotlib` and run
 `python3 analyze_results.py`. This reads the uploaded result CSVs and does not
 download filings. Scanning with `discovery.py` still requires no packages.
+
+
+## What the expanded data can answer
+
+The useful question is: **How do fraud-related disclosures, their specificity,
+and reported financial-impact evidence vary across S&P 500 sectors and years?**
+Annual reports can supply financial-statement notes, MD&A, litigation, and risk
+context missing from short 8-Ks. Quarterly reports can update them. More context
+and cost paragraphs can reveal estimates or reimbursements away from a fraud term.
+A live check confirmed the Coinbase expense estimate omitted by the old short
+excerpts is retained by the new extractor.
+
+The added flags are word-based review aids, not an automatic incident classifier.
+Several flags can be true together. Exact repeated passages are marked across
+filings of the same company; this does not deduplicate events or reliably identify
+all boilerplate. Numbers are kept in fingerprints so changed amounts are not
+silently merged. The first-seen reference is scan order, not the first public date.
+No monetary expressions are added automatically.
+
+Company-year rows use **filing year**, not fiscal year or incident year. Unknown
+metadata, failed scans, and years without eligible filings have distinct statuses.
+Do not treat any of these as zero fraud. Compare matched forms and covered periods;
+adding annual/quarterly forms changes the denominator relative to the Debian
+8-K-only baseline. The unchanged bundled snapshot is still a fixed panel.
+
+This does not measure causal effects on S&P 500 returns, fraud proceeds, or AI's
+impact. Stock-market effects would require dated, validated events and separate
+market-return data. No LLM or API key has been added.
