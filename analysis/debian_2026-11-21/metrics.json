@@ -1,0 +1,46 @@
+{
+  "run_label": "Debian",
+  "run_folder": "2026-11-21_003915_094872",
+  "companies": 500,
+  "complete_companies": 435,
+  "partial_companies": 65,
+  "attempted_filings": 44928,
+  "successful_filings": 44845,
+  "failed_filings": 83,
+  "file_success_percent": 99.815,
+  "fraud_keyword_filings": 209,
+  "fraud_keyword_companies_all_coverage": 92,
+  "cyber_keyword_filings": 1508,
+  "cyber_keyword_companies_all_coverage": 230,
+  "both_keyword_categories_filings": 128,
+  "either_keyword_category_filings": 1589,
+  "evidence_passages": 1817,
+  "corrected_item_1_05_filings": 21,
+  "corrected_item_1_05_companies": 14,
+  "old_item_106_true_count": 0,
+  "fifth_third_fraud_keyword_filings": 44,
+  "fifth_third_filings_with_identical_risk_phrase": 37,
+  "firstenergy_cyber_keyword_filings": 91,
+  "xcel_cyber_keyword_filings": 80,
+  "successful_forms": {
+    "8-K": 43948,
+    "8-K/A": 897
+  },
+  "errors": {
+    "HTTP Error 502: Bad Gateway": 25,
+    "HTTP Error 504: Gateway Time-out": 31,
+    "<urlopen error _ssl.c:1012: The handshake operation timed out>": 14,
+    "<urlopen error [Errno 101] Network is unreachable>": 13
+  },
+  "filing_date_min": "2020-01-02",
+  "filing_date_max": "2026-11-20",
+  "source_sha256": {
+    "coverage.csv": "7d727a9f6c83b37fc1b561974c429a62c5fb7cefcbaa2dba78d74137541cf2fa",
+    "filings.csv": "e57fafe22689f7aefc0ce2213cc99d9df538e765f0da9bd3eb78995cc447be1c",
+    "findings.csv": "1ace47c61cd88241d99bbe25e17df8d2227ba5c8ad77dd42ffbf4c6ecc149021",
+    "sector_summary.csv": "98b2991f77290d73072595ff9ea17e0a4429c11e0d924affe3cc773bad63943f",
+    "DISCOVERY.md": "b879f43820436319b1517198ed20c694593e62e5c4fe3f8ae099d04fb156459a"
+  },
+  "collector_reference_commit": "6695fc335577b996a93995002e7f33dad267a897",
+  "collector_revision_note": "Repository version preceding upload; the scan did not record its own Git revision."
+}

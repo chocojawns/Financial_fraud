@@ -1,5 +1,10 @@
 # S&P 500 fraud and cybersecurity discovery
 
+[Debian results: analysis, sector graphs, and corrected Item 1.05 figures](analysis/debian_2026-11-21/README.md).
+The original uploaded scan is preserved. Its `item_106` column and report used an
+incorrect item number; the analysis recovers 21 Item 1.05 filings from saved metadata.
+You do not need to rerun collection to use that correction.
+
 Run one file. No arguments, prompts, OpenAI key, cache, or pictures.
 
 **Windows / VS Code:**
@@ -25,8 +30,8 @@ Python 3.10 or newer. No packages to install. SEC contact is hard-coded as
 3. Searches the full primary 8-K text for fraud/cybersecurity language and item numbers.
 4. Saves source excerpts and compares disclosure counts across all 11 sectors.
 
-**Item 1.06** covers material cybersecurity incidents. There is no current 8-K
-Item 1.05. Items 4.02, 5.02, 7.01, 8.01, and 9.01 can contain relevant context,
+**Item 1.05** covers material cybersecurity incidents. Regulation S-K Item 106
+is a separate annual cybersecurity disclosure rule. Items 4.02, 5.02, 7.01, 8.01, and 9.01 can contain relevant context,
 but they are not exclusive to fraud. Those item numbers alone do not count as a
 fraud/cyber match. Primary documents are searched regardless of item number.
 Exhibits/attachments, PDFs/images, and confidential reports are not searched.
@@ -54,7 +59,7 @@ Review the excerpts before drawing conclusions or comparing sector rankings.
 `companies.csv` is a third-party fixed-panel snapshot retrieved November 20, 2026,
 not independently verified official or historical membership. Source, license,
 and checksum are in `companies_source.json`. Multiple share classes with the same
-CIK are scanned once. Item 1.06 reporting began in December 2023; changes across
+CIK are scanned once. Item 1.05 reporting began in December 2023; changes across
 that date can reflect new reporting rules rather than more incidents.
 
 ## GitHub
@@ -83,3 +88,7 @@ python -m unittest discover -s tests -v
 ```
 
 Tests simulate SEC responses. They do not establish live SEC availability.
+
+To reproduce the Debian analysis and graphs, install `matplotlib` and run
+`python3 analyze_results.py`. This reads the uploaded result CSVs and does not
+download filings. Scanning with `discovery.py` still requires no packages.

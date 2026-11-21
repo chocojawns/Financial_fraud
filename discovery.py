@@ -111,8 +111,8 @@ def inspect(text, declared_items=''):
     matches = [(match.start(), match.end()) for pattern in PATTERNS.values()
                for match in pattern.finditer(text)]
     # Capture a material cybersecurity disclosure even if its wording evades keywords.
-    matches.extend((match.start(), match.end()) for match in headings if match.group(1) == '1.06')
-    if '1.06' in items and not matches:
+    matches.extend((match.start(), match.end()) for match in headings if match.group(1) == '1.05')
+    if '1.05' in items and not matches:
         matches.append((0, min(1000, len(text))))
     windows = []
     for start, end in sorted(matches):
@@ -134,9 +134,9 @@ def inspect(text, declared_items=''):
                              'preceding_item_candidate': preceding[-1] if preceding else '',
                              'categories': '; '.join(name for name, pattern in PATTERNS.items()
                                                      if pattern.search(snippet))})
-    material = ('1.06' in declared if declared else bool(re.search(
-        r'\bItem\s+1\.06[. :]*Material\s+Cybersecurity\s+Incidents', text, re.I)))
-    return {'items': '; '.join(sorted(items)), 'item_106': material,
+    material = ('1.05' in declared if declared else bool(re.search(
+        r'\bItem\s+1\.05[. :]*Material\s+Cybersecurity\s+Incidents?', text, re.I)))
+    return {'items': '; '.join(sorted(items)), 'item_1_05': material,
             'fraud_match': bool(PATTERNS['fraud'].search(text)),
             'cyber_match': bool(PATTERNS['cybersecurity'].search(text)), 'passages': passages}
 
@@ -158,7 +158,7 @@ def summarize(coverage):
     for sector in sorted({row['sector'] for row in coverage}):
         rows = [r for r in coverage if r['sector'] == sector]
         complete = [r for r in rows if r['status'] == 'complete']
-        relevant = sum(r['fraud_filings'] > 0 or r['cyber_filings'] > 0 or r['item_106_filings'] > 0
+        relevant = sum(r['fraud_filings'] > 0 or r['cyber_filings'] > 0 or r['item_1_05_filings'] > 0
                        for r in complete)
         summary.append({
             'sector': sector, 'constituents': len(rows), 'complete_companies': len(complete),
@@ -166,7 +166,7 @@ def summarize(coverage):
             'scanned_filings': sum(r['scanned_filings'] for r in rows),
             'fraud_keyword_filings': sum(r['fraud_filings'] for r in rows),
             'cyber_keyword_filings': sum(r['cyber_filings'] for r in rows),
-            'item_106_filings': sum(r['item_106_filings'] for r in rows),
+            'item_1_05_filings': sum(r['item_1_05_filings'] for r in rows),
             'complete_companies_with_relevant_disclosures': relevant,
             'relevant_percent_of_complete_companies': round(100 * relevant / len(complete), 1) if complete else '',
         })
@@ -181,17 +181,17 @@ def write_analysis(folder, coverage, until, stopped):
     scanned = sum(row['scanned_filings'] for row in coverage)
     table = '\n'.join(f'| {r["sector"]} | {r["complete_companies"]}/{r["constituents"]} | '
                       f'{r["scanned_filings"]} | {r["fraud_keyword_filings"]} | '
-                      f'{r["cyber_keyword_filings"]} | {r["item_106_filings"]} | '
+                      f'{r["cyber_keyword_filings"]} | {r["item_1_05_filings"]} | '
                       f'{r["relevant_percent_of_complete_companies"] if r["relevant_percent_of_complete_companies"] != "" else "Not available"} |' for r in summary)
     report = f'''# S&P 500 8-K fraud and cybersecurity discovery
 
-Period: {START_DATE} through {until} (filing dates). Status: {"STOPPED / INCOMPLETE" if stopped or complete < len(coverage) else "COMPLETE"}.
+Period: {START_DATE} through {until} (filing dates). Status: {"STOPPED / INCOMPLETE" if stopped else "FINISHED WITH ERRORS" if complete < len(coverage) else "COMPLETE"}.
 Companies completely scanned: {complete}/{len(coverage)}. Primary filing documents scanned: {scanned}.
 
 {('Collection stopped: ' + stopped) if stopped else ''}
 {'**No filing text was collected; there are no research findings.**' if not scanned else ''}
 
-| Sector | Complete/constituents | Scanned 8-Ks | Fraud-word filings | Cyber-word filings | Item 1.06 filings | Relevant % of complete companies |
+| Sector | Complete/constituents | Scanned 8-Ks | Fraud-word filings | Cyber-word filings | Item 1.05 filings | Relevant % of complete companies |
 |---|---:|---:|---:|---:|---:|---:|
 {table}
 
@@ -203,7 +203,7 @@ numbers and fraud/cybersecurity vocabulary, and retain source excerpts. No LLM,
 API key, images, raw filing downloads, or cache. Other than the bundled company
 list, only result CSVs and this report are saved. Reruns start a new scan.
 
-There is no current 8-K Item 1.05. Item 1.06 concerns material cybersecurity incidents.
+Item 1.05 concerns material cybersecurity incidents. Regulation S-K Item 106 is a separate annual disclosure rule.
 Items 4.02 (financial-statement non-reliance), 5.02 (leadership changes), 7.01
 (Regulation FD), 8.01 (other events), and 9.01 (exhibits) can provide context, but
 are not fraud-specific. Their presence alone does not count as a relevant match.
@@ -228,7 +228,7 @@ The company list is a third-party snapshot retrieved November 20, 2026, sourced
 from Wikipedia via datasets/s-and-p-500-companies. It is not independently verified
 official membership or historical membership. Share classes with the same CIK are
 scanned once. Applying the snapshot to 2020 onward creates a fixed-company panel.
-Item 1.06 reporting began in December 2023, so comparisons across that date reflect
+Item 1.05 reporting began in December 2023, so comparisons across that date reflect
 changes in disclosure requirements as well as possible underlying events.
 
 ## Next research step
@@ -258,12 +258,12 @@ def main():
     folder = ROOT / 'results' / datetime.now().strftime('%Y-%m-%d_%H%M%S_%f')
     folder.mkdir(parents=True)
     coverage = [dict(company, status='not_started', eligible_filings='', scanned_filings=0,
-                     failed_filings=0, fraud_filings=0, cyber_filings=0, item_106_filings=0, error='')
+                     failed_filings=0, fraud_filings=0, cyber_filings=0, item_1_05_filings=0, error='')
                 for company in companies]
     sec = SEC()
     stopped = ''
     base = ['cik', 'ticker', 'company', 'sector', 'accession', 'form', 'filing_date', 'source_url']
-    filing_fields = base + ['declared_items', 'found_items', 'fraud_match', 'cyber_match', 'item_106', 'status', 'error']
+    filing_fields = base + ['declared_items', 'found_items', 'fraud_match', 'cyber_match', 'item_1_05', 'status', 'error']
     finding_fields = base + ['declared_items', 'found_items', 'preceding_item_candidate', 'categories', 'offset', 'text']
     print(f'Scanning {len(companies)} companies, 8-K/8-K/A, {START_DATE}–{until}.')
     print('SEC contact: andrew@johnson.vet. No arguments or API keys. This can take hours.')
@@ -295,12 +295,12 @@ def main():
                             raise ValueError('No readable primary-document text')
                         analysis = inspect(text, filing['declared_items'])
                         result.update(found_items=analysis['items'], fraud_match=analysis['fraud_match'],
-                                      cyber_match=analysis['cyber_match'], item_106=analysis['item_106'],
+                                      cyber_match=analysis['cyber_match'], item_1_05=analysis['item_1_05'],
                                       status='scanned', error='')
                         row['scanned_filings'] += 1
                         row['fraud_filings'] += int(analysis['fraud_match'])
                         row['cyber_filings'] += int(analysis['cyber_match'])
-                        row['item_106_filings'] += int(analysis['item_106'])
+                        row['item_1_05_filings'] += int(analysis['item_1_05'])
                         for passage in analysis['passages']:
                             ew.writerow(safe({key: result.get(key, passage.get(key, '')) for key in finding_fields}))
                     except Exception as error:
