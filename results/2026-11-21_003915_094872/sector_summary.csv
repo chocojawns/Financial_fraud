@@ -1,0 +1,12 @@
+﻿sector,constituents,complete_companies,incomplete_companies,scanned_filings,fraud_keyword_filings,cyber_keyword_filings,item_106_filings,complete_companies_with_relevant_disclosures,relevant_percent_of_complete_companies
+Communication Services,19,18,1,2649,17,66,0,9,50.0
+Consumer Discretionary,47,43,4,3885,6,75,0,18,41.9
+Consumer Staples,33,28,5,2906,8,18,0,12,42.9
+Energy,21,19,2,1985,2,113,0,13,68.4
+Financials,76,70,6,7709,93,196,0,42,60.0
+Health Care,60,54,6,4954,21,164,0,27,50.0
+Industrials,83,73,10,6408,20,345,0,33,45.2
+Information Technology,76,63,13,5665,14,114,0,36,57.1
+Materials,24,16,8,1937,6,58,0,7,43.8
+Real Estate,30,26,4,3040,9,25,0,11,42.3
+Utilities,31,25,6,3707,13,334,0,17,68.0
