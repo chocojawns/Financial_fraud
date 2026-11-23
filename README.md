@@ -1,5 +1,23 @@
 # S&P 500 fraud disclosure discovery
 
+## Draft annual-cost worksheet
+
+Run `python3 fraud_costs.py` on Debian (or `python fraud_costs.py` on Windows).
+No arguments, prompts, keys, or LLM. It starts with **Coinbase and Fifth Third**,
+searches their 2020–today annual/quarterly/current reports, and saves
+`candidate_costs.csv`, `coverage.csv`, and `REVIEW.md` in a new
+`results/fraud_costs_...` folder. This is a separate pilot; the discovery scanner
+is unchanged. It can take time because it checks the full filing history.
+
+Amounts are review leads, not verified annual spending. The worksheet separates
+filing year from the amount's reporting year and offers accounting/category hints.
+Estimates, fines, reimbursements, provisions, recoveries, and losses must be
+reviewed separately and deduplicated before any totals. All start unapproved.
+Regulatory matters are labeled separately rather than assumed to be fraud.
+The first fine-tuning step is to review 10–20 leads and decide which qualify.
+
+## Broad discovery scan
+
 [Debian results: analysis, sector graphs, and corrected Item 1.05 figures](analysis/debian_2026-11-21/README.md).
 The original uploaded scan is preserved. Its `item_106` column and report used an
 incorrect item number; the analysis recovers 21 Item 1.05 filings from saved metadata.
