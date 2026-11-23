@@ -1,5 +1,7 @@
 # Debian discovery analysis — November 21, 2026
 
+[Follow-up: Fifth Third match dates and the documented July 2024 regulatory resolutions](FIFTH_THIRD.md).
+
 **You have a usable proof of concept, not a fraud-loss estimate.** The scanner
 successfully searched 44,845 primary 8-K/8-K/A documents across all 11 sectors.
 The strongest finding is that repeated corporate risk language can dominate
